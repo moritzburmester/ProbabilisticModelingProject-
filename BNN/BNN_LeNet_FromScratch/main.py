@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 import copy
 import time
+from tqdm import tqdm
 import json
 
 norm_mean_std = {
@@ -98,21 +99,24 @@ def model_training(model, train_loader, test_loader, optimizer, num_epochs=25, s
         running_loss = 0.0
         running_corrects = 0
         
-        for inputs, labels in train_loader:
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-            
-            optimizer.zero_grad()
-            
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-            loss = F.cross_entropy(outputs, labels)
-            
-            loss.backward()
-            optimizer.step()
-            
-            running_loss += loss.item() * inputs.size(0)
-            running_corrects += torch.sum(preds == labels.data)
+        with tqdm(train_loader, unit="batch") as tepoch:
+            for inputs, labels in tepoch:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                
+                optimizer.zero_grad()
+                
+                outputs = model(inputs)
+                _, preds = torch.max(outputs, 1)
+                loss = F.cross_entropy(outputs, labels)
+                
+                loss.backward()
+                optimizer.step()
+                
+                running_loss += loss.item() * inputs.size(0)
+                running_corrects += torch.sum(preds == labels.data)
+                
+                tepoch.set_postfix(loss=loss.item())
         
         epoch_loss = running_loss / len(train_loader.dataset)
         epoch_acc = running_corrects.double() / len(train_loader.dataset)
@@ -146,6 +150,6 @@ def main():
     model = model.to(device)
     
     model_training(model, train_loader, test_loader, optimizer, num_epochs=num_epochs, save_path='./bnn_lenet.pth')
-
+  
 if __name__ == "__main__":
     main()
