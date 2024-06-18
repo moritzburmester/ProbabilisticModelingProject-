@@ -163,9 +163,9 @@ def model_training(
         for i, (inputs, labels) in enumerate(train_loader):
 
             # save time if you are not interested in training the model and its results
-            #k += 1
-            #if k == 5:
-                #break
+            k += 1
+            if k == 5:
+                break
 
             # train the model
             inputs, labels = inputs.to(device), labels.to(device)
