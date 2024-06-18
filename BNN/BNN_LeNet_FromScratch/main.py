@@ -69,11 +69,11 @@ class BNNLeNet(nn.Module):
     def __init__(self, input_channels=1, num_classes=10, input_size=28):
         super(BNNLeNet, self).__init__()
         
-        self.conv1 = bnn.BayesConv2d(in_channels=input_channels, out_channels=6, kernel_size=5, prior_sigma=1.0, prior_mu=1.0)
-        self.conv2 = bnn.BayesConv2d(in_channels=6, out_channels=16, kernel_size=5, prior_sigma=1.0, prior_mu=1.0)
-        self.fc1 = bnn.BayesLinear(in_features=16 * 4 * 4, out_features=120, prior_sigma=1.0, prior_mu=1.0)
-        self.fc2 = bnn.BayesLinear(in_features=120, out_features=84, prior_sigma=1.0, prior_mu=1.0)
-        self.fc3 = bnn.BayesLinear(in_features=84, out_features=num_classes, prior_sigma=1.0, prior_mu=1.0)
+        self.conv1 = bnn.BayesConv2d(in_channels=input_channels, out_channels=6, kernel_size=5, prior_sigma=0.1, prior_mu=0.1)
+        self.conv2 = bnn.BayesConv2d(in_channels=6, out_channels=16, kernel_size=5, prior_sigma=0.1, prior_mu=0.1)
+        self.fc1 = bnn.BayesLinear(in_features=16 * 4 * 4, out_features=120, prior_sigma=0.1, prior_mu=0.1)
+        self.fc2 = bnn.BayesLinear(in_features=120, out_features=84, prior_sigma=0.1, prior_mu=0.1)
+        self.fc3 = bnn.BayesLinear(in_features=84, out_features=num_classes, prior_sigma=0.1, prior_mu=0.1)
         
     def forward(self, x):
         x = F.max_pool2d(F.relu(self.conv1(x)), 2)
@@ -116,11 +116,18 @@ def model_training(model, train_loader, test_loader, optimizer, num_epochs=25, s
                 running_loss += loss.item() * inputs.size(0)
                 running_corrects += torch.sum(preds == labels.data)
                 
+                
+                
                 tepoch.set_postfix(loss=loss.item())
         
         epoch_loss = running_loss / len(train_loader.dataset)
         epoch_acc = running_corrects.double() / len(train_loader.dataset)
-        
+        # Debugging prints
+        print(f"Inputs shape: {inputs.shape}")
+        print(f"Outputs shape: {outputs.shape}")
+        print(f"Predictions: {preds}")
+        print(f"Labels: {labels}")
+                
         print(f'Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
         
         if epoch_acc > best_acc:
