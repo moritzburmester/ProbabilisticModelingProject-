@@ -160,33 +160,37 @@ class EDLNet(nn.Module):
         size = maxpool2d_size_out(size)
 
         # Calculate the number of features
-        return size * size * self.conv2_out_channels
+        output_size = size * size * self.conv2_out_channels
+        return output_size
 
     def forward(self, x):
         x = self.aapl(x)
+
+        # First convolutional layer
         x = self.conv1(x)
         x = F.relu(x)
         x = F.max_pool2d(x, 2)
 
+        # Second convolutional layer
         x = self.conv2(x)
         x = F.relu(x)
         x = F.max_pool2d(x, 2)
 
         # Flatten the tensor
         x = x.view(x.size(0), -1)
-        print(f"Flattened size: {x.size()}")  # Add this line to check the size
-        print(f"Output size: {self.fc1(x)}")
 
+        # First fully connected layer
         x = self.fc1(x)
         x = F.relu(x)
 
+        # Dropout
         if self.use_dropout:
             x = F.dropout(x, training=self.training)
 
+        # Second fully connected layer
         x = self.fc2(x)
 
         return x
-
 ############################################################################################################
 #                                  Loss Functions                                                          #
 ############################################################################################################
@@ -389,15 +393,14 @@ def model_training(
     print("-" * 120)
     print(f'Model saved to {save_path}')
 
-    # Save batch data to JSON file
-    #with open(json_save_path, 'w') as json_file:
-        #json.dump(batch_data, json_file)
-    #print(f'Batch data saved to {json_save_path}')
 
     # Perform rotating image classification to demonstrate uncertainty
     rotating_image_classification(
-        test_loader, model, dataclass=1, num_classes=num_classes, threshold=0.2, plot_dir='plots'
+        test_loader, model, dataclass=1, num_classes=num_classes, threshold=0.5, plot_dir='plots'
     )
+
+    # Plotting metrics
+    plot_training_metrics(train_evidences, train_uncertainties, num_epochs)
 
 
 
@@ -597,8 +600,35 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
     ax1.axis('off')
 
     # Save the combined plot
-    plt.savefig(f'{plot_dir}/combined_visualization.png')
+    plt.savefig(f'{plot_dir}/testing_rotation.png')
     plt.show()
+
+
+#plotting the development of uncertainty and evidence
+def plot_training_metrics(train_evidences, train_uncertainties, num_epochs):
+    epochs = range(1, num_epochs + 1)
+
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+
+    color = 'tab:blue'
+    ax1.set_xlabel('Epoch')
+    ax1.set_ylabel('Evidence (Dirichlet Strength)', color=color)
+    ax1.plot(epochs, train_evidences, label='Evidence (Dirichlet Strength)', color=color)
+    ax1.tick_params(axis='y', labelcolor=color)
+    ax1.legend(loc='upper left')
+
+    ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+    color = 'tab:red'
+    ax2.set_ylabel('Uncertainty', color=color)  # we already handled the x-label with ax1
+    ax2.plot(epochs, train_uncertainties, label='Uncertainty', color=color)
+    ax2.tick_params(axis='y', labelcolor=color)
+    ax2.legend(loc='upper right')
+
+    fig.tight_layout()  # Adjusts the padding to fit the elements in the figure area
+    fig.subplots_adjust(top=0.9)  # Adjust the top of the subplot to fit the title
+    plt.title('Evidence (Dirichlet Strength) and Uncertainty during Training')
+    plt.show()
+
 
 ############################################################################################################
 #                                  Main Function                                                           #
@@ -608,7 +638,7 @@ def main():
     # configuration parameters
     num_epochs = 2
     num_classes = 3
-    dataset_name = 'CIFAR10'
+    dataset_name = 'MNIST'
 
     # test alpha values
     #plot_dirichlet_parameters([[1, 1, 16], [1, 13, 14]])

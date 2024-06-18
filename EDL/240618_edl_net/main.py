@@ -7,7 +7,7 @@ def main():
     # configuration parameters
     num_epochs = 2
     num_classes = 3
-    dataset_name = 'CIFAR10'
+    dataset_name = 'MNIST'
 
     # test alpha values
     #plot_dirichlet_parameters([[1, 1, 16], [1, 13, 14]])

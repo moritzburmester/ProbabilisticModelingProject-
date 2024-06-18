@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import copy
 import time
 
-from auxiliary_functions import rotating_image_classification, dempster_shafer
+from auxiliary_functions import rotating_image_classification, dempster_shafer, plot_training_metrics
 
 class EDLNet(nn.Module):
     def __init__(self, input_channels=1, num_classes=10, dropout=False, input_size=28):
@@ -47,10 +47,12 @@ class EDLNet(nn.Module):
         size = maxpool2d_size_out(size)
 
         # Calculate the number of features
-        return size * size * self.conv2_out_channels
+        output_size = size * size * self.conv2_out_channels
+        return output_size
 
     def forward(self, x):
         x = self.aapl(x)
+
         # First convolutional layer
         x = self.conv1(x)
         x = F.relu(x)
@@ -63,7 +65,6 @@ class EDLNet(nn.Module):
 
         # Flatten the tensor
         x = x.view(x.size(0), -1)
-
 
         # First fully connected layer
         x = self.fc1(x)
@@ -162,9 +163,9 @@ def model_training(
         for i, (inputs, labels) in enumerate(train_loader):
 
             # save time if you are not interested in training the model and its results
-            k += 1
-            if k == 5:
-                break
+            #k += 1
+            #if k == 5:
+                #break
 
             # train the model
             inputs, labels = inputs.to(device), labels.to(device)
@@ -254,5 +255,8 @@ def model_training(
 
     # Perform rotating image classification to demonstrate uncertainty
     rotating_image_classification(
-        test_loader, model, dataclass=1, num_classes=num_classes, threshold=0.5, plot_dir='plots'
+        test_loader, model, dataclass=1, num_classes=num_classes, threshold=0.5
     )
+
+    # Plotting metrics
+    plot_training_metrics(train_evidences, train_uncertainties, num_epochs)

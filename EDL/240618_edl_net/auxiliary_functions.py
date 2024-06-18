@@ -198,7 +198,7 @@ def plot_dirichlet_parameters(alpha_list):
     plt.show()
 
 ############################################################################################################
-#           Transformation of NN Output into evidence and uncertainty  with Dempster Shafe                 #
+#           Transformation of NN Output into evidence and uncertainty  with Dempster Shafer                #
 ############################################################################################################
 
 def dempster_shafer(nn_output):
@@ -312,6 +312,32 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
     ax1.axis('off')
 
     # Save the combined plot
-    plt.savefig(f'{plot_dir}/combined_visualization.png')
+    plt.savefig(f'{plot_dir}/testing_rotation.png')
+    plt.show()
+
+
+#plotting the development of uncertainty and evidence
+def plot_training_metrics(train_evidences, train_uncertainties, num_epochs):
+    epochs = range(1, num_epochs + 1)
+
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+
+    color = 'tab:blue'
+    ax1.set_xlabel('Epoch')
+    ax1.set_ylabel('Evidence (Dirichlet Strength)', color=color)
+    ax1.plot(epochs, train_evidences, label='Evidence (Dirichlet Strength)', color=color)
+    ax1.tick_params(axis='y', labelcolor=color)
+    ax1.legend(loc='upper left')
+
+    ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+    color = 'tab:red'
+    ax2.set_ylabel('Uncertainty', color=color)  # we already handled the x-label with ax1
+    ax2.plot(epochs, train_uncertainties, label='Uncertainty', color=color)
+    ax2.tick_params(axis='y', labelcolor=color)
+    ax2.legend(loc='upper right')
+
+    fig.tight_layout()  # Adjusts the padding to fit the elements in the figure area
+    fig.subplots_adjust(top=0.9)  # Adjust the top of the subplot to fit the title
+    plt.title('Evidence (Dirichlet Strength) and Uncertainty during Training')
     plt.show()
 
