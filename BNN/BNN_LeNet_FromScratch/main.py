@@ -9,7 +9,6 @@ import numpy as np
 import copy
 import time
 from tqdm import tqdm
-import json
 
 norm_mean_std = {
     'MNIST': ([0.5], [0.5]),
@@ -59,11 +58,6 @@ def get_data_loaders(dataset_name, batch_size=32, num_workers=2, root='./data', 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     
     return train_loader, test_loader
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torchbnn as bnn
 
 class BNNLeNet(nn.Module):
     def __init__(self, input_channels=1, num_classes=10, input_size=28):
@@ -116,18 +110,11 @@ def model_training(model, train_loader, test_loader, optimizer, num_epochs=25, s
                 running_loss += loss.item() * inputs.size(0)
                 running_corrects += torch.sum(preds == labels.data)
                 
-                
-                
                 tepoch.set_postfix(loss=loss.item())
         
         epoch_loss = running_loss / len(train_loader.dataset)
         epoch_acc = running_corrects.double() / len(train_loader.dataset)
-        # Debugging prints
-        print(f"Inputs shape: {inputs.shape}")
-        print(f"Outputs shape: {outputs.shape}")
-        print(f"Predictions: {preds}")
-        print(f"Labels: {labels}")
-                
+        
         print(f'Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
         
         if epoch_acc > best_acc:
@@ -157,6 +144,6 @@ def main():
     model = model.to(device)
     
     model_training(model, train_loader, test_loader, optimizer, num_epochs=num_epochs, save_path='./bnn_lenet.pth')
-  
+
 if __name__ == "__main__":
     main()

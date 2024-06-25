@@ -1,119 +1,114 @@
 import torch
-import torch.nn.functional as F
+import matplotlib.pyplot as plt
 import numpy as np
+import torch.nn.functional as F
+from torchvision.utils import make_grid
+import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-import torchvision
-from torchvision import transforms, datasets
-from main import BNNLeNet 
+from main import BNNLeNet, get_data_loaders
 from tqdm import tqdm
 
-norm_mean_std = {
-    'MNIST': ([0.5], [0.5]),
-    'CIFAR10': ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
-    'FashionMNIST': ([0.5], [0.5])
-}
+def plot_uncertainty(model, test_loader, num_samples=50):
+    model.eval()
+    device = next(model.parameters()).device
 
-def load_data(dataset_name, batch_size=32, num_workers=2, root='./data', selected_classes=None):
-    if dataset_name in ['MNIST', 'FashionMNIST']:
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(norm_mean_std[dataset_name][0], norm_mean_std[dataset_name][1])
-        ])
-    else:
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(norm_mean_std[dataset_name][0], norm_mean_std[dataset_name][1])
-        ])
+    epistemic_uncertainty = []
+    aleatoric_uncertainty = []
 
-    if dataset_name == 'MNIST':
-        train_dataset = torchvision.datasets.MNIST(root=root, train=True, download=True, transform=transform)
-        test_dataset = torchvision.datasets.MNIST(root=root, train=False, download=True, transform=transform)
+    with torch.no_grad(), tqdm(test_loader, unit="batch") as tloader:
+        for inputs, _ in tloader:
+            inputs = inputs.to(device)
+            outputs = torch.stack([F.softmax(model(inputs), dim=1) for _ in range(num_samples)], dim=0)
+            epistemic_var = torch.var(outputs, dim=0).mean(dim=0).cpu().numpy()
+            epistemic_uncertainty.extend(epistemic_var)
+            
+            if hasattr(model, 'last_noises'):
+                aleatoric_var = torch.var(torch.stack(model.last_noises), dim=0).mean(dim=0).cpu().numpy()
+                aleatoric_uncertainty.extend(aleatoric_var)
+            
+            tloader.set_postfix(epistemic_uncertainty=np.mean(epistemic_uncertainty))
+
+    epistemic_uncertainty = np.array(epistemic_uncertainty)
+    fig, ax = plt.subplots()
+    ax.hist(epistemic_uncertainty, bins=50, alpha=0.5, color='b', label='Epistemic Uncertainty')
     
-    elif dataset_name == 'CIFAR10':
-        train_dataset = torchvision.datasets.CIFAR10(root=root, train=True, download=True, transform=transform)
-        test_dataset = torchvision.datasets.CIFAR10(root=root, train=False, download=True, transform=transform)
+    if aleatoric_uncertainty:
+        aleatoric_uncertainty = np.array(aleatoric_uncertainty)
+        ax.hist(aleatoric_uncertainty, bins=50, alpha=0.5, color='r', label='Aleatoric Uncertainty')
     
-    elif dataset_name == 'FashionMNIST':
-        train_dataset = torchvision.datasets.FashionMNIST(root=root, train=True, download=True, transform=transform)
-        test_dataset = torchvision.datasets.FashionMNIST(root=root, train=False, download=True, transform=transform)
+    ax.set_xlabel('Uncertainty')
+    ax.set_ylabel('Frequency')
+    ax.set_title('Distribution of Uncertainty')
+    ax.legend()
     
-    else:
-        raise ValueError(f"Dataset {dataset_name} is not supported.")
+    plt.show()
 
-    if selected_classes is not None:
-        def filter_classes(dataset, classes):
-            targets = np.array(dataset.targets)
-            indices = np.hstack([np.where(targets == cls)[0] for cls in classes])
-            dataset.data = dataset.data[indices]
-            dataset.targets = targets[indices]
-            return dataset
-        
-        train_dataset = filter_classes(train_dataset, selected_classes)
-        test_dataset = filter_classes(test_dataset, selected_classes)
+def predict_with_uncertainty(model, inputs, num_samples=50):
+    model.eval()
+    device = next(model.parameters()).device
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    with torch.no_grad(), tqdm(total=len(inputs), unit="batch") as tloader:
+        inputs = inputs.to(device)
+        outputs = torch.stack([F.softmax(model(inputs), dim=1) for _ in range(num_samples)], dim=0)
+        epistemic_var = torch.var(outputs, dim=0).mean(dim=0).cpu().numpy()
+        mean_prediction = outputs.mean(dim=0).argmax(dim=1).cpu().numpy()
+        tloader.update(len(inputs))
+        return mean_prediction, epistemic_var
+
+def display_high_uncertainty_image(model, test_loader, num_samples=50):
+    model.eval()
+    device = next(model.parameters()).device
+
+    max_uncertainty = -1
+    max_uncertainty_image = None
+    max_uncertainty_prediction = None
+
+    with torch.no_grad(), tqdm(test_loader, unit="batch") as tloader:
+        for inputs, _ in tloader:
+            inputs = inputs.to(device)
+            outputs = torch.stack([F.softmax(model(inputs), dim=1) for _ in range(num_samples)], dim=0)
+            epistemic_var = torch.var(outputs, dim=0).mean(dim=0).cpu().numpy()
+            max_batch_uncertainty = np.max(epistemic_var)
+            if max_batch_uncertainty > max_uncertainty:
+                max_uncertainty = max_batch_uncertainty
+                max_uncertainty_index = np.argmax(epistemic_var)
+                max_uncertainty_image = inputs[max_uncertainty_index].cpu()
+                max_uncertainty_prediction = outputs.mean(dim=0)[max_uncertainty_index].argmax().cpu().numpy()
+            
+            tloader.set_postfix(max_uncertainty=max_uncertainty)
+
+    plt.figure(figsize=(8, 4))
+    plt.subplot(1, 2, 1)
+    plt.imshow(max_uncertainty_image.squeeze(), cmap='gray')
+    plt.axis('off')
+    plt.title(f'Predicted Class: {max_uncertainty_prediction}')
     
-    return train_loader, test_loader
+    plt.subplot(1, 2, 2)
+    plt.bar(range(10), outputs.mean(dim=0)[max_uncertainty_index].cpu().numpy())
+    plt.xlabel('Classes')
+    plt.ylabel('Probability')
+    plt.title('Predicted Class Probabilities')
+    plt.xticks(range(10))
+    plt.tight_layout()
+    
+    plt.show()
 
-def main():
-    num_classes = 10
-    dataset_name = 'MNIST'
-    batch_size = 32
-
-    # Load data
-    train_loader, test_loader = load_data(dataset_name, batch_size=batch_size)
-
-    # Load model
-    model = BNNLeNet(input_channels=1, num_classes=num_classes, input_size=28)
+if __name__ == "__main__":
+    model = BNNLeNet(input_channels=1, num_classes=10, input_size=28)
     model.load_state_dict(torch.load('./bnn_lenet.pth'))
     model.eval()
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize([0.5], [0.5])
+    ])
+    _, test_loader = get_data_loaders('MNIST', batch_size=32, num_workers=2)
 
-    predictions = []
-    uncertainties = []
+    plot_uncertainty(model, test_loader, num_samples=50)
 
-    # Use tqdm for progress bars
-    test_loader = tqdm(test_loader, desc='Predicting', leave=False)
-    for inputs, labels in test_loader:
-        inputs = inputs.to(device)
-        labels = labels.to(device)
+    inputs, labels = next(iter(test_loader))
+    mean_prediction, epistemic_var = predict_with_uncertainty(model, inputs, num_samples=50)
+    print(f'Predicted class: {mean_prediction}')
+    print(f'Epistemic uncertainty: {epistemic_var}')
 
-        batch_predictions = []
-        for _ in range(50):  # Perform multiple forward passes for uncertainty estimation
-            outputs = model(inputs)
-            batch_predictions.append(outputs.detach().cpu().numpy())  # Use detach().cpu().numpy()
-
-        # Concatenate along batch dimension
-        batch_predictions = np.concatenate(batch_predictions, axis=0)
-        predictions.append(batch_predictions)
-
-        # Calculate predictive uncertainty (e.g., entropy)
-        entropy = torch.distributions.Categorical(F.softmax(outputs, dim=1)).entropy()
-        uncertainties.append(entropy.detach().cpu().numpy())
-
-    # Concatenate all predictions and uncertainties
-    predictions = np.concatenate(predictions, axis=0)
-    uncertainties = np.concatenate(uncertainties, axis=0)
-    print(uncertainties.shape)
-    print(type(uncertainties))
-    # Compute predicted labels using mean prediction
-    print(predictions)
-    print(type(predictions))
-    print(predictions.shape)
-    mean_predictions = np.mean(predictions, axis=0)  # Take mean across all samples
-    print(mean_predictions)
-    print(type(mean_predictions))
-    print(mean_predictions.shape)
-    predicted_labels = np.argmax(mean_predictions, axis=0)  # Find index of maximum value along axis 1
-    # Compute accuracy
-    accuracy = np.mean(predicted_labels == labels.cpu().numpy())
-    print(f"Accuracy: {accuracy * 100:.2f}%")
-
-    # Compute average uncertainty
-    avg_uncertainty = np.mean(uncertainties)
-    print(f"Average Uncertainty: {avg_uncertainty:.4f}")
-
-if __name__ == "__main__":
-    main()
+    display_high_uncertainty_image(model, test_loader, num_samples=50)
