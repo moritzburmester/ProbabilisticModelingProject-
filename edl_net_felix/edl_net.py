@@ -6,32 +6,40 @@ import time
 from PIL import Image
 import matplotlib.pyplot as plt
 from torchvision import transforms
-import variables as var
 from sklearn.metrics import precision_recall_fscore_support, confusion_matrix, classification_report
 import seaborn as sns
 import pandas as pd
 
 from auxiliary_functions import rotating_image_classification, dempster_shafer, plot_training_metrics,plot_dirichlet_parameters
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 class EDLNet(nn.Module):
-    def __init__(self, input_channels=1, num_classes=10, dropout=False, input_size=28):
-        super().__init__()
+    def __init__(self, input_channels=1, num_classes=10, dropout=False, input_size=28, dataset='MNIST'):
+        super(EDLNet, self).__init__()
         self.aapl = nn.AdaptiveAvgPool2d((input_size, input_size))  # adaptive layer for variable input sizes
         self.use_dropout = dropout
+        self.dataset = dataset
 
         # Define hyperparameters
         self.num_classes = num_classes
         self.input_channels = input_channels
         self.conv1_out_channels = 32
         self.conv2_out_channels = 64
-        self.conv3_out_channels = 128  # For more complex datasets like CIFAR-10
+        self.conv3_out_channels = 128 if dataset == 'CIFAR10' else None
         self.fc1_out_features = 256
 
         # Define layers
         self.conv1 = nn.Conv2d(self.input_channels, self.conv1_out_channels, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(self.conv1_out_channels)
         self.conv2 = nn.Conv2d(self.conv1_out_channels, self.conv2_out_channels, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(self.conv2_out_channels, self.conv3_out_channels, kernel_size=3, padding=1)
-
+        self.bn2 = nn.BatchNorm2d(self.conv2_out_channels)
+        if dataset == 'CIFAR10':
+            self.conv3 = nn.Conv2d(self.conv2_out_channels, self.conv3_out_channels, kernel_size=3, padding=1)
+            self.bn3 = nn.BatchNorm2d(self.conv3_out_channels)
+        
         # Calculate the size of the feature map after conv and pool layers
         conv_output_size = self._get_conv_output_size(input_size)
 
@@ -55,12 +63,13 @@ class EDLNet(nn.Module):
         size = conv2d_size_out(size)
         size = maxpool2d_size_out(size)
 
-        # Calculate size after third conv layer
-        size = conv2d_size_out(size)
-        size = maxpool2d_size_out(size)
+        # Calculate size after third conv layer (if applicable)
+        if self.dataset == 'CIFAR10':
+            size = conv2d_size_out(size)
+            size = maxpool2d_size_out(size)
 
         # Calculate the number of features
-        output_size = size * size * self.conv3_out_channels
+        output_size = size * size * (self.conv3_out_channels if self.dataset == 'CIFAR10' else self.conv2_out_channels)
         return output_size
 
     def forward(self, x):
@@ -68,18 +77,22 @@ class EDLNet(nn.Module):
 
         # First convolutional layer
         x = self.conv1(x)
+        x = self.bn1(x)
         x = F.relu(x)
         x = F.max_pool2d(x, 2)
 
         # Second convolutional layer
         x = self.conv2(x)
+        x = self.bn2(x)
         x = F.relu(x)
         x = F.max_pool2d(x, 2)
 
-        # Third convolutional layer
-        x = self.conv3(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2)
+        if self.dataset == 'CIFAR10':
+            # Third convolutional layer (only for CIFAR10)
+            x = self.conv3(x)
+            x = self.bn3(x)
+            x = F.relu(x)
+            x = F.max_pool2d(x, 2)
 
         # Flatten the tensor
         x = x.view(x.size(0), -1)
