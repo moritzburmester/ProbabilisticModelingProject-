@@ -26,10 +26,10 @@ class EDLNet(nn.Module):
         # Define hyperparameters
         self.num_classes = num_classes
         self.input_channels = input_channels
-        self.conv1_out_channels = 32
-        self.conv2_out_channels = 64
+        self.conv1_out_channels = 8
+        self.conv2_out_channels = 16
         self.conv3_out_channels = 128 if dataset == 'CIFAR10' else None
-        self.fc1_out_features = 256
+        self.fc1_out_features = 64
 
         # Define layers
         self.conv1 = nn.Conv2d(self.input_channels, self.conv1_out_channels, kernel_size=3, padding=1)
@@ -39,7 +39,7 @@ class EDLNet(nn.Module):
         if dataset == 'CIFAR10':
             self.conv3 = nn.Conv2d(self.conv2_out_channels, self.conv3_out_channels, kernel_size=3, padding=1)
             self.bn3 = nn.BatchNorm2d(self.conv3_out_channels)
-        
+
         # Calculate the size of the feature map after conv and pool layers
         conv_output_size = self._get_conv_output_size(input_size)
 
@@ -111,7 +111,7 @@ class EDLNet(nn.Module):
         return x
 
 
-def edl_mse_loss(output, target, epoch_num, num_classes, annealing_step, alpha):
+def edl_mse_loss(target, epoch_num, num_classes, annealing_step, alpha):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Ensure tensors are on the correct device
@@ -128,7 +128,8 @@ def edl_mse_loss(output, target, epoch_num, num_classes, annealing_step, alpha):
     # KL Divergence Calculation
     kl_alpha = (alpha - 1) * (1 - y) + 1
 
-    ones = torch.ones([1, num_classes], dtype=torch.float32, device=device)
+    #ones = torch.ones([1, num_classes], dtype=torch.float32, device=device)
+    ones = torch.ones_like(alpha)  # Ensure `ones` matches the size of `alpha`
     sum_kl_alpha = torch.sum(kl_alpha, dim=1, keepdim=True)
     first_term = (
             torch.lgamma(sum_kl_alpha)
@@ -184,7 +185,7 @@ def model_training(
         visualize_dir = False
 
     for epoch in range(num_epochs):
-
+        model.train()  # Ensure model is in training mode at the start of each epoch
         print("-" * 120)
         print(f"Epoch {epoch + 1}")
         print("-" * 120)
@@ -197,7 +198,6 @@ def model_training(
         k = 50
 
         for i, (inputs, labels) in enumerate(train_loader):
-
             # train the model
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
@@ -220,7 +220,8 @@ def model_training(
                 k += 1
 
             labels = torch.eye(num_classes)[labels].float()
-            loss = edl_mse_loss(outputs, labels.float(), epoch, num_classes, 10, alpha)
+            loss = edl_mse_loss(target=labels.float(), epoch_num=epoch, annealing_step=10,
+                                num_classes=num_classes, alpha=alpha)
 
             epoch_loss += loss.item()
 
@@ -296,7 +297,7 @@ def model_training(
 
     # Perform rotating image classification to demonstrate uncertainty
     rotating_image_classification(
-        test_loader, model, dataclass=1, num_classes=num_classes, threshold=0.5
+        test_loader, model, dataclass=1, num_classes=num_classes, threshold=0.2
     )
 
     # Plotting metrics
@@ -306,11 +307,11 @@ def model_training(
 #                                       evaluation and testing                                     #
 ####################################################################################################
 
-def evaluate_model(model_path, test_loader=None):
+def evaluate_model(model_path, test_loader=None, num_classes=10, selected_classes=10):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Load the model
-    model = EDLNet()
+    model = EDLNet(num_classes=num_classes)  # ensure the model is created with the same number of classes
     try:
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f"Model loaded successfully from {model_path}")
@@ -321,12 +322,15 @@ def evaluate_model(model_path, test_loader=None):
     model = model.to(device)
     model.eval()
 
-    # Get class names from the dataset
+    # Adjust class names based on selected classes
     if hasattr(test_loader.dataset, 'classes'):
-        class_names = test_loader.dataset.classes
+        # If dataset has predefined class names
+        class_names = [test_loader.dataset.classes[i] for i in selected_classes]
     else:
-        print("The dataset does not have class names.")
-        return
+        # If no predefined names, create numeric class names based on selected classes
+        class_names = [str(i) for i in selected_classes]
+
+    print(f"Class names being used: {class_names}")
 
     all_labels = []
     all_predictions = []
@@ -340,10 +344,9 @@ def evaluate_model(model_path, test_loader=None):
             labels = labels.to(device)
             outputs = model(images)
 
-            # max returns (value ,index)
             _, predicted = torch.max(outputs, 1)
             n_correct += (predicted == labels).sum().item()
-            
+
             all_labels.extend(labels.cpu().numpy())
             all_predictions.extend(predicted.cpu().numpy())
 
@@ -373,7 +376,8 @@ def evaluate_model(model_path, test_loader=None):
     plt.show()
 
 
-def single_img_model_evaluate(model, image_path, num_classes, input_channels, input_size,test_loader): 
+
+def single_img_model_evaluate(model, image_path, num_classes, input_channels, input_size,test_loader):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Load the image
@@ -385,7 +389,7 @@ def single_img_model_evaluate(model, image_path, num_classes, input_channels, in
     # Transform the image
     trans = transforms.Compose([transforms.Resize((input_size, input_size)), transforms.ToTensor()])
     img_tensor = trans(image).unsqueeze(0).to(device)
-    
+
     # # Plot the transformed image
     img = img_tensor.squeeze().cpu().numpy()  # Squeeze and move to CPU
     plt.imshow(img, cmap='gray')
@@ -402,7 +406,7 @@ def single_img_model_evaluate(model, image_path, num_classes, input_channels, in
     prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
 
     _, predicted_class = torch.max(outputs, 1)
-    
+
     # Convert to numpy for readability
     predicted_class = predicted_class.cpu().item()
 
@@ -464,12 +468,3 @@ def classify_image(model_path, image_path, input_size=28, num_classes=10):
     plot_dirichlet_parameters(alpha)
 
     return predicted_class
-
-
-
-
-    
-
-
-
-    
