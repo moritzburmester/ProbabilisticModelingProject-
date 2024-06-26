@@ -22,47 +22,41 @@ norm_mean_std = {
 
 
 def get_data_loaders(dataset_name, batch_size=32, num_workers=0, root='./data', selected_classes=None):
-    if dataset_name in ['MNIST', 'FashionMNIST']:
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(norm_mean_std[dataset_name][0], norm_mean_std[dataset_name][1])
-        ])
-    else:
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(norm_mean_std[dataset_name][0], norm_mean_std[dataset_name][1])
-        ])
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(norm_mean_std[dataset_name][0], norm_mean_std[dataset_name][1])
+    ])
 
     if dataset_name == 'MNIST':
         train_dataset = torchvision.datasets.MNIST(root=root, train=True, download=True, transform=transform)
         test_dataset = torchvision.datasets.MNIST(root=root, train=False, download=True, transform=transform)
-
     elif dataset_name == 'CIFAR10':
         train_dataset = torchvision.datasets.CIFAR10(root=root, train=True, download=True, transform=transform)
         test_dataset = torchvision.datasets.CIFAR10(root=root, train=False, download=True, transform=transform)
-
     elif dataset_name == 'FashionMNIST':
         train_dataset = torchvision.datasets.FashionMNIST(root=root, train=True, download=True, transform=transform)
         test_dataset = torchvision.datasets.FashionMNIST(root=root, train=False, download=True, transform=transform)
-
     else:
         raise ValueError(f"Dataset {dataset_name} is not supported.")
 
     if selected_classes is not None:
-        def filter_classes(dataset, classes):
+        new_labels = {cls: idx for idx, cls in enumerate(selected_classes)}
+
+        def filter_and_remap_classes(dataset, classes, new_labels):
             targets = np.array(dataset.targets)
             indices = np.hstack([np.where(targets == cls)[0] for cls in classes])
             dataset.data = dataset.data[indices]
-            dataset.targets = targets[indices]
+            dataset.targets = np.array([new_labels[cls] for cls in targets[indices]])
             return dataset
 
-        train_dataset = filter_classes(train_dataset, selected_classes)
-        test_dataset = filter_classes(test_dataset, selected_classes)
+        train_dataset = filter_and_remap_classes(train_dataset, selected_classes, new_labels)
+        test_dataset = filter_and_remap_classes(test_dataset, selected_classes, new_labels)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     return train_loader, test_loader
+
 
 def denormalize(image, mean, std):
     for t, m, s in zip(image, mean, std):
@@ -198,7 +192,7 @@ def plot_dirichlet_parameters(alpha_list):
     plt.show()
 
 ############################################################################################################
-#           Transformation of NN Output into evidence and uncertainty  with Dempster Shafer                #
+#           Transformation of NN Output into evidence and uncertainty with Dempster Shafer                 #
 ############################################################################################################
 
 def dempster_shafer(nn_output):
@@ -218,6 +212,11 @@ def dempster_shafer(nn_output):
 ############################################################################################################
 #                Visualization of testing an adversarial example displaying the uncertainty                #
 ############################################################################################################
+
+def unnormalize(img, mean, std):
+    img = img * std + mean
+    return img
+
 def rotate_img(x, deg, img_size, channels):
     if channels == 1:
         return nd.rotate(x.reshape(img_size), deg, reshape=False).ravel()
@@ -235,7 +234,7 @@ def get_specific_digit(data_loader, digit):
                 return img, label
     return next(iter(data_loader))  # Return the first data point if the specified digit is not found
 
-def rotating_image_classification(dataset, model, dataclass=None, num_classes=10, threshold=0.5, plot_dir='plots'):
+def rotating_image_classification(dataset, model, dataclass=None, num_classes=10, threshold=0.5, plot_dir='plots', selected_classes=None):
     if not os.path.exists(plot_dir):
         os.makedirs(plot_dir)
 
@@ -244,7 +243,11 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
     else:
         img, label = next(iter(dataset))
 
-    print(f"Using class {label.item()} for classification.")  # Use .item() to convert tensor to a scalar
+    # Select a single image and label
+    img = img[0]  # Take the first image from the batch
+    label = label[0]  # Take the first label from the batch
+
+    print(f"Using class {selected_classes[label.item()]} for classification.")  # Use the actual class name
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
@@ -259,6 +262,9 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
     lu = []
     scores = np.zeros((1, num_classes))
     rimgs = np.zeros((img_size[0], img_size[1] * Ndeg, channels))
+
+    mean = np.array([0.5] * channels)
+    std = np.array([0.5] * channels)
 
     for i, deg in enumerate(np.linspace(0, Mdeg, Ndeg)):
         nimg = rotate_img(img.numpy(), deg, img_size, channels).reshape((channels, img_size[0], img_size[1]))
@@ -282,14 +288,14 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
     lp = np.array(lp)[:, labels]
     c = ['black', 'blue', 'brown', 'red', 'purple', 'cyan']
     marker = ['s', '^', 'o'] * 2
-    labels = labels.tolist()
+    labels = [selected_classes[label] for label in labels.tolist()]  # Map back to actual class names
 
     # Create a single figure with two subplots using GridSpec
     fig = plt.figure(figsize=(10, 8))
     gs = gridspec.GridSpec(2, 1, height_ratios=[2, 1], hspace=0.05)
 
     # Add a title to the figure
-    fig.suptitle(f"Classification and uncertainty for rotated image of class {label.item()}", fontsize=14)
+    fig.suptitle(f"Classification and uncertainty for rotated image of class {selected_classes[label.item()]}", fontsize=14)
 
     ax0 = plt.subplot(gs[0])
     ax1 = plt.subplot(gs[1])
@@ -307,6 +313,10 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
     ax0.set_xlabel('Rotation Degree')
     ax0.set_ylabel('Classification Probability')
 
+    # Unnormalize the rotated images before displaying
+    rimgs = unnormalize(rimgs, mean, std)
+    rimgs = np.clip(rimgs, 0, 1)
+
     # Plot the rotated images underneath
     ax1.imshow(1 - rimgs, cmap='gray', aspect='equal')
     ax1.axis('off')
@@ -314,7 +324,6 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
     # Save the combined plot
     plt.savefig(f'{plot_dir}/testing_rotation.png')
     plt.show()
-
 
 #plotting the development of uncertainty and evidence
 def plot_training_metrics(train_evidences, train_uncertainties, num_epochs):

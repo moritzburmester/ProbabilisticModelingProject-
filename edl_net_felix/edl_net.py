@@ -162,6 +162,7 @@ def model_training(
         train_loader,
         test_loader,
         num_classes,
+        selected_classes,
         optimizer,
         num_epochs=25,
         save_path='./cnn.pth',
@@ -183,6 +184,8 @@ def model_training(
 
     if num_classes != 3:
         visualize_dir = False
+
+    class_mapping = {i: selected_classes[i] for i in range(len(selected_classes))}
 
     for epoch in range(num_epochs):
         model.train()  # Ensure model is in training mode at the start of each epoch
@@ -279,7 +282,7 @@ def model_training(
         train_losses.append(epoch_loss / len(train_loader))
         print("Epoch Loss: {:.4f}".format(epoch_loss / len(train_loader)))
 
-        if visualize_dir == True:
+        if visualize_dir:
             print(epoch_alpha)
             plot_dirichlet_parameters(epoch_alpha)
 
@@ -297,17 +300,18 @@ def model_training(
 
     # Perform rotating image classification to demonstrate uncertainty
     rotating_image_classification(
-        test_loader, model, dataclass=1, num_classes=num_classes, threshold=0.2
+        test_loader, model, dataclass=7, num_classes=num_classes, threshold=0.2, selected_classes=selected_classes
     )
 
     # Plotting metrics
     plot_training_metrics(train_evidences, train_uncertainties, num_epochs)
 
+
 ####################################################################################################
 #                                       evaluation and testing                                     #
 ####################################################################################################
 
-def evaluate_model(model_path, test_loader=None, num_classes=10, selected_classes=10):
+def evaluate_model(model_path, test_loader=None, num_classes=3, selected_classes=[7, 8, 9]):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Load the model
@@ -322,13 +326,7 @@ def evaluate_model(model_path, test_loader=None, num_classes=10, selected_classe
     model = model.to(device)
     model.eval()
 
-    # Adjust class names based on selected classes
-    if hasattr(test_loader.dataset, 'classes'):
-        # If dataset has predefined class names
-        class_names = [test_loader.dataset.classes[i] for i in selected_classes]
-    else:
-        # If no predefined names, create numeric class names based on selected classes
-        class_names = [str(i) for i in selected_classes]
+    class_names = [str(cls) for cls in selected_classes]
 
     print(f"Class names being used: {class_names}")
 
@@ -353,6 +351,10 @@ def evaluate_model(model_path, test_loader=None, num_classes=10, selected_classe
     acc = 100.0 * n_correct / n_samples
     print(f'Accuracy of the model: {acc:.2f} %')
 
+    # Map predictions and labels back to the original class names
+    all_labels = [selected_classes[label] for label in all_labels]
+    all_predictions = [selected_classes[pred] for pred in all_predictions]
+
     # Calculate precision, recall, F1-score
     precision, recall, f1, _ = precision_recall_fscore_support(all_labels, all_predictions, average='weighted', zero_division=1)
     print(f'Precision: {precision:.2f}')
@@ -374,7 +376,6 @@ def evaluate_model(model_path, test_loader=None, num_classes=10, selected_classe
     plt.ylabel('Actual')
     plt.title('Confusion Matrix')
     plt.show()
-
 
 
 def single_img_model_evaluate(model, image_path, num_classes, input_channels, input_size,test_loader):
