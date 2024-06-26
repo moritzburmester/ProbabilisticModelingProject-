@@ -5,7 +5,7 @@ from auxiliary_functions import plot_dirichlet_parameters, get_data_loaders, plo
 
 def main():
     # configuration parameters
-    num_epochs = 2
+    num_epochs = 10
     num_classes = 3
     dataset_name = 'MNIST'
 
@@ -13,11 +13,10 @@ def main():
     #plot_dirichlet_parameters([[1, 1, 16], [1, 13, 14]])
 
     # loading the data
-    train_loader, test_loader = get_data_loaders(dataset_name, batch_size=200, num_workers=0, root='./data',
-                                                 selected_classes=[0, 1, 2])
+    train_loader, test_loader = get_data_loaders(dataset_name, batch_size=200, num_workers=0, root='./data')
 
     # plot the first image of each class
-    #plot_first_images_of_each_class(train_loader, num_classes, dataset_name)
+    # plot_first_images_of_each_class(train_loader, num_classes, dataset_name)
 
     # get image size and channels
     input_size, input_channels = image_size_channels(train_loader)

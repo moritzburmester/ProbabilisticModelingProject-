@@ -1,0 +1,45 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+
+# Editor-based HTTP Client requests
+/httpRequests/
+
+# Datasource local storage ignored files
+/dataSources/
+/dataSources.local.xml
+
+# Custom ignored files
+.idea/
+*.tar.gz
+*.pth
+*.png
+*.xml
+*.ubyte
+*.ubyte.gz
+/ProbabilisticModelingProject-.iml
+
+
+
+/edl_net_felix/plots/confusion_matrix.png
+/edl_net_felix/edl_mnist_update.pth
+/EDL/240618_edl_net/lenet.py
+/EDL/240618_edl_net/data/MNIST/raw/t10k-images-idx3-ubyte
+/edl_net_felix/data/MNIST/raw/t10k-images-idx3-ubyte
+/EDL/240618_edl_net/data/MNIST/raw/t10k-images-idx3-ubyte.gz
+/edl_net_felix/data/MNIST/raw/t10k-images-idx3-ubyte.gz
+/EDL/240618_edl_net/data/MNIST/raw/t10k-labels-idx1-ubyte
+/edl_net_felix/data/MNIST/raw/t10k-labels-idx1-ubyte
+/EDL/240618_edl_net/data/MNIST/raw/t10k-labels-idx1-ubyte.gz
+/edl_net_felix/data/MNIST/raw/t10k-labels-idx1-ubyte.gz
+/edl_net_felix/plots/testing_rotation.png
+/EDL/240618_edl_net/data/MNIST/raw/train-images-idx3-ubyte
+/edl_net_felix/data/MNIST/raw/train-images-idx3-ubyte
+/EDL/240618_edl_net/data/MNIST/raw/train-images-idx3-ubyte.gz
+/edl_net_felix/data/MNIST/raw/train-images-idx3-ubyte.gz
+/EDL/240618_edl_net/data/MNIST/raw/train-labels-idx1-ubyte
+/edl_net_felix/data/MNIST/raw/train-labels-idx1-ubyte
+/EDL/240618_edl_net/data/MNIST/raw/train-labels-idx1-ubyte.gz
+/edl_net_felix/data/MNIST/raw/train-labels-idx1-ubyte.gz
+/EDL/240618_edl_net/training.py
+/edl_net_felix/plots/uncertainty_evidence_during_training.png

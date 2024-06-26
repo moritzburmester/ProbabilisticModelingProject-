@@ -15,9 +15,9 @@ class EDLNet(nn.Module):
         # Define hyperparameters
         self.num_classes = num_classes
         self.input_channels = input_channels
-        self.conv1_out_channels = 2
-        self.conv2_out_channels = 5
-        self.fc1_out_features = 10
+        self.conv1_out_channels = 8
+        self.conv2_out_channels = 16
+        self.fc1_out_features = 64
 
         # Define layers
         self.conv1 = nn.Conv2d(self.input_channels, self.conv1_out_channels, kernel_size=5)
@@ -158,14 +158,14 @@ def model_training(
         epoch_evidence = 0.0
         epoch_uncertainty = 0.0
 
-        k = 0
+        #k = 0
 
         for i, (inputs, labels) in enumerate(train_loader):
 
             # save time if you are not interested in training the model and its results
-            k += 1
-            if k == 5:
-                break
+            #k += 1
+            #if k == 5:
+                #break
 
             # train the model
             inputs, labels = inputs.to(device), labels.to(device)
