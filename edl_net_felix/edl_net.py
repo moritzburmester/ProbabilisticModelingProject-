@@ -326,16 +326,26 @@ def evaluate_model(model_path, test_loader=None, num_classes=3, selected_classes
     model = model.to(device)
     model.eval()
 
+    # Adjust class names based on selected classes
     class_names = [str(cls) for cls in selected_classes]
 
     print(f"Class names being used: {class_names}")
+
+    # Count occurrences of each class in the test_loader
+    class_counts = {cls: 0 for cls in selected_classes}
+
+    for images, labels in test_loader:
+        for label in labels:
+            class_counts[selected_classes[label.item()]] += 1
+
+    print(f"Class counts in the test set: {class_counts}")
 
     all_labels = []
     all_predictions = []
 
     with torch.no_grad():
         n_correct = 0
-        n_samples = len(test_loader.dataset)
+        n_samples = 0
 
         for images, labels in test_loader:
             images = images.to(device)
@@ -347,6 +357,7 @@ def evaluate_model(model_path, test_loader=None, num_classes=3, selected_classes
 
             all_labels.extend(labels.cpu().numpy())
             all_predictions.extend(predicted.cpu().numpy())
+            n_samples += labels.size(0)
 
     acc = 100.0 * n_correct / n_samples
     print(f'Accuracy of the model: {acc:.2f} %')
@@ -376,6 +387,7 @@ def evaluate_model(model_path, test_loader=None, num_classes=3, selected_classes
     plt.ylabel('Actual')
     plt.title('Confusion Matrix')
     plt.show()
+
 
 
 def single_img_model_evaluate(model, image_path, num_classes, input_channels, input_size,test_loader):

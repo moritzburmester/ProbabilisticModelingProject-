@@ -8,7 +8,9 @@ import matplotlib.pyplot as plt
 import scipy.ndimage as nd
 import os
 import matplotlib.tri as tri
-from matplotlib import gridspec
+import matplotlib.gridspec as gridspec
+from scipy.ndimage import rotate
+
 
 ############################################################################################################
 #                           Data Loader and data manipulation functions                                    #
@@ -217,13 +219,13 @@ def unnormalize(img, mean, std):
     img = img * std + mean
     return img
 
-def rotate_img(x, deg, img_size, channels):
+def rotate_img(img, angle, img_size, channels):
     if channels == 1:
-        return nd.rotate(x.reshape(img_size), deg, reshape=False).ravel()
+        return rotate(img.reshape(img_size), angle, reshape=False).ravel()
     else:
-        rotated = np.zeros_like(x)
+        rotated = np.zeros_like(img)
         for c in range(channels):
-            rotated[c] = nd.rotate(x[c].reshape(img_size), deg, reshape=False)
+            rotated[c] = rotate(img[c].reshape(img_size), angle, reshape=False)
         return rotated.ravel()
 
 def get_specific_digit(data_loader, digit):
@@ -242,6 +244,10 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
         img, label = get_specific_digit(dataset, dataclass)
     else:
         img, label = next(iter(dataset))
+
+    # Ensure img and label are single elements
+    img = img.unsqueeze(0) if img.dim() == 3 else img
+    label = torch.tensor([label.item()]) if label.dim() == 0 else label
 
     # Select a single image and label
     img = img[0]  # Take the first image from the batch
@@ -265,6 +271,10 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
 
     mean = np.array([0.5] * channels)
     std = np.array([0.5] * channels)
+
+    # Unnormalize the image before rotation
+    img = unnormalize(img, mean, std)
+    img = np.clip(img, 0, 1)
 
     for i, deg in enumerate(np.linspace(0, Mdeg, Ndeg)):
         nimg = rotate_img(img.numpy(), deg, img_size, channels).reshape((channels, img_size[0], img_size[1]))

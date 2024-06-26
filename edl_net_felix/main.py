@@ -5,8 +5,8 @@ from auxiliary_functions import plot_dirichlet_parameters, get_data_loaders, plo
 
 def main():
     # Configuration parameters
-    selected_classes = [0,1, 2, 3, 4, 5, 6, 7, 8, 9]  # Select the classes to be used
-    num_epochs = 2
+    selected_classes = [7, 8, 9]  # Select the classes to be used
+    num_epochs = 1
     num_classes = len(selected_classes)  # Dynamically set the number of classes based on selected_classes
     dataset_name = 'MNIST'  # 'MNIST' or 'CIFAR10
     save_path = './edl_mnist_update.pth'
