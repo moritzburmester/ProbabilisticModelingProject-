@@ -10,25 +10,20 @@ from sklearn.metrics import precision_recall_fscore_support, confusion_matrix, c
 import seaborn as sns
 import pandas as pd
 
-from auxiliary_functions import rotating_image_classification, dempster_shafer, plot_training_metrics,plot_dirichlet_parameters
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from auxiliary_functions import (rotating_image_classification, dempster_shafer, plot_training_metrics,
+                                 plot_dirichlet_parameters, evaluate_during_training)
 
 class EDLNet(nn.Module):
-    def __init__(self, input_channels=1, num_classes=10, dropout=False, input_size=28, dataset='MNIST'):
+    def __init__(self, input_channels=1, num_classes=10, dropout=False, input_size=28):
         super(EDLNet, self).__init__()
         self.aapl = nn.AdaptiveAvgPool2d((input_size, input_size))  # adaptive layer for variable input sizes
         self.use_dropout = dropout
-        self.dataset = dataset
 
         # Define hyperparameters
         self.num_classes = num_classes
         self.input_channels = input_channels
         self.conv1_out_channels = 8
         self.conv2_out_channels = 16
-        self.conv3_out_channels = 128 if dataset == 'CIFAR10' else None
         self.fc1_out_features = 64
 
         # Define layers
@@ -36,9 +31,6 @@ class EDLNet(nn.Module):
         self.bn1 = nn.BatchNorm2d(self.conv1_out_channels)
         self.conv2 = nn.Conv2d(self.conv1_out_channels, self.conv2_out_channels, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(self.conv2_out_channels)
-        if dataset == 'CIFAR10':
-            self.conv3 = nn.Conv2d(self.conv2_out_channels, self.conv3_out_channels, kernel_size=3, padding=1)
-            self.bn3 = nn.BatchNorm2d(self.conv3_out_channels)
 
         # Calculate the size of the feature map after conv and pool layers
         conv_output_size = self._get_conv_output_size(input_size)
@@ -63,13 +55,8 @@ class EDLNet(nn.Module):
         size = conv2d_size_out(size)
         size = maxpool2d_size_out(size)
 
-        # Calculate size after third conv layer (if applicable)
-        if self.dataset == 'CIFAR10':
-            size = conv2d_size_out(size)
-            size = maxpool2d_size_out(size)
-
         # Calculate the number of features
-        output_size = size * size * (self.conv3_out_channels if self.dataset == 'CIFAR10' else self.conv2_out_channels)
+        output_size = size * size * self.conv2_out_channels
         return output_size
 
     def forward(self, x):
@@ -87,13 +74,6 @@ class EDLNet(nn.Module):
         x = F.relu(x)
         x = F.max_pool2d(x, 2)
 
-        if self.dataset == 'CIFAR10':
-            # Third convolutional layer (only for CIFAR10)
-            x = self.conv3(x)
-            x = self.bn3(x)
-            x = F.relu(x)
-            x = F.max_pool2d(x, 2)
-
         # Flatten the tensor
         x = x.view(x.size(0), -1)
 
@@ -109,6 +89,7 @@ class EDLNet(nn.Module):
         x = self.fc2(x)
 
         return x
+
 
 
 def edl_mse_loss(target, epoch_num, num_classes, annealing_step, alpha):
@@ -172,18 +153,13 @@ def model_training(
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     best_model = copy.deepcopy(model.state_dict())
+    best_accuracy = 0
 
     train_evidences = []
     train_uncertainties = []
     train_losses = []
     train_accuracies = []
     test_accuracies = []
-
-    # Initialize lists to store alpha, dirichlet_strength, and uncertainty for every batch and epoch
-    batch_data = []
-
-    if num_classes != 3:
-        visualize_dir = False
 
     class_mapping = {i: selected_classes[i] for i in range(len(selected_classes))}
 
@@ -196,9 +172,6 @@ def model_training(
         epoch_loss = 0.0
         epoch_evidence = 0.0
         epoch_uncertainty = 0.0
-        epoch_alpha = []
-
-        k = 50
 
         for i, (inputs, labels) in enumerate(train_loader):
             # train the model
@@ -216,12 +189,6 @@ def model_training(
             # apply dempster shafer theory for edl
             alpha, dirichlet_strength, uncertainty = dempster_shafer(outputs)
 
-            if k == 50:
-                epoch_alpha.append(list(alpha[0].detach().cpu()))
-                k = 0
-            else:
-                k += 1
-
             labels = torch.eye(num_classes)[labels].float()
             loss = edl_mse_loss(target=labels.float(), epoch_num=epoch, annealing_step=10,
                                 num_classes=num_classes, alpha=alpha)
@@ -234,40 +201,19 @@ def model_training(
             loss.backward()
             optimizer.step()
 
-            # Save batch data
-            batch_data.append({
-                'epoch': epoch + 1,
-                'batch': i + 1,
-                'alpha': alpha.detach().cpu().tolist(),
-                'dirichlet_strength': dirichlet_strength.detach().cpu().tolist(),
-                'uncertainty': uncertainty.detach().cpu().tolist()
-            })
-
-            # evaluate the model
-            model.eval()
-            with torch.no_grad():
-                correct = 0
-                total = 0
-
-                for data in test_loader:
-                    inputs, labels = data[0].to(device), data[1].to(device)
-                    outputs = model(inputs)
-                    _, prediction = torch.max(outputs.data, 1)
-                    total += labels.size(0)
-                    correct += (prediction == labels).sum().item()
-
-            test_accuracy = 100 * correct / total
-            test_accuracies.append(test_accuracy)
-            print(f"Epoch {epoch + 1}/{num_epochs}, "
-                  f"Batch {i + 1}/{len(train_loader)}, "
-                  f"Loss: {(epoch_loss / (i + 1)):.4f}, "
-                  f"Avg. Evidence: {(epoch_evidence / (i + 1)):.4f}, "
-                  f"Avg. Uncertainty: {(epoch_uncertainty / (i + 1)):.4f}, "
-                  f"Train Accuracy: {train_accuracy:.2f}%, "
-                  f"Test Accuracy: {test_accuracy:.2f}%")
+        # evaluate the model
+        test_accuracy = evaluate_during_training(model, test_loader, num_classes, selected_classes)
+        test_accuracies.append(test_accuracy)
+        print(f"Epoch {epoch + 1}/{num_epochs}, "
+              f"Loss: {(epoch_loss / (i + 1)):.4f}, "
+              f"Avg. Evidence: {(epoch_evidence / (i + 1)):.4f}, "
+              f"Avg. Uncertainty: {(epoch_uncertainty / (i + 1)):.4f}, "
+              f"Train Accuracy: {train_accuracy:.2f}%, "
+              f"Test Accuracy: {test_accuracy:.2f}%")
 
         # save parameters of the best model
-        if test_accuracy > max(test_accuracies):
+        if test_accuracy > best_accuracy:
+            best_accuracy = test_accuracy
             best_model = copy.deepcopy(model.state_dict())
 
         # epoch uncertainty
@@ -283,15 +229,14 @@ def model_training(
         print("Epoch Loss: {:.4f}".format(epoch_loss / len(train_loader)))
 
         if visualize_dir:
-            print(epoch_alpha)
-            plot_dirichlet_parameters(epoch_alpha)
+            plot_dirichlet_parameters([list(alpha[0].detach().cpu())])
 
     print("-" * 120)
     print('Finished Training')
     print("-" * 120)
     time_elapsed = time.time() - since
     print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
-    print(f'Best Test Accuracy: {max(test_accuracies):.2f}%')
+    print(f'Best Test Accuracy: {best_accuracy:.2f}%')
 
     # Save the best model
     torch.save(best_model, save_path)
@@ -300,184 +245,8 @@ def model_training(
 
     # Perform rotating image classification to demonstrate uncertainty
     rotating_image_classification(
-        test_loader, model, dataclass=7, num_classes=num_classes, threshold=0.2, selected_classes=selected_classes
+        test_loader, model, dataclass=4, num_classes=num_classes, threshold=0.5, selected_classes=selected_classes
     )
 
     # Plotting metrics
     plot_training_metrics(train_evidences, train_uncertainties, num_epochs)
-
-
-####################################################################################################
-#                                       evaluation and testing                                     #
-####################################################################################################
-
-def evaluate_model(model_path, test_loader=None, num_classes=3, selected_classes=[7, 8, 9]):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # Load the model
-    model = EDLNet(num_classes=num_classes)  # ensure the model is created with the same number of classes
-    try:
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        print(f"Model loaded successfully from {model_path}")
-    except Exception as e:
-        print(f"Error loading the model from {model_path}: {e}")
-        return
-
-    model = model.to(device)
-    model.eval()
-
-    # Adjust class names based on selected classes
-    class_names = [str(cls) for cls in selected_classes]
-
-    print(f"Class names being used: {class_names}")
-
-    # Count occurrences of each class in the test_loader
-    class_counts = {cls: 0 for cls in selected_classes}
-
-    for images, labels in test_loader:
-        for label in labels:
-            class_counts[selected_classes[label.item()]] += 1
-
-    print(f"Class counts in the test set: {class_counts}")
-
-    all_labels = []
-    all_predictions = []
-
-    with torch.no_grad():
-        n_correct = 0
-        n_samples = 0
-
-        for images, labels in test_loader:
-            images = images.to(device)
-            labels = labels.to(device)
-            outputs = model(images)
-
-            _, predicted = torch.max(outputs, 1)
-            n_correct += (predicted == labels).sum().item()
-
-            all_labels.extend(labels.cpu().numpy())
-            all_predictions.extend(predicted.cpu().numpy())
-            n_samples += labels.size(0)
-
-    acc = 100.0 * n_correct / n_samples
-    print(f'Accuracy of the model: {acc:.2f} %')
-
-    # Map predictions and labels back to the original class names
-    all_labels = [selected_classes[label] for label in all_labels]
-    all_predictions = [selected_classes[pred] for pred in all_predictions]
-
-    # Calculate precision, recall, F1-score
-    precision, recall, f1, _ = precision_recall_fscore_support(all_labels, all_predictions, average='weighted', zero_division=1)
-    print(f'Precision: {precision:.2f}')
-    print(f'Recall: {recall:.2f}')
-    print(f'F1-Score: {f1:.2f}')
-
-    # Print classification report
-    print('\nClassification Report:')
-    print(classification_report(all_labels, all_predictions, target_names=class_names, zero_division=1))
-
-    # Compute confusion matrix
-    cm = confusion_matrix(all_labels, all_predictions)
-    cm_df = pd.DataFrame(cm, index=class_names, columns=class_names)
-
-    # Plot confusion matrix
-    plt.figure(figsize=(10, 7))
-    sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues')
-    plt.xlabel('Predicted')
-    plt.ylabel('Actual')
-    plt.title('Confusion Matrix')
-    plt.show()
-
-
-
-def single_img_model_evaluate(model, image_path, num_classes, input_channels, input_size,test_loader):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # Load the image
-    image = Image.open(image_path).convert('L')
-    fig, ax = plt.subplots()
-    ax.imshow(image, cmap='gray')
-    plt.show()
-
-    # Transform the image
-    trans = transforms.Compose([transforms.Resize((input_size, input_size)), transforms.ToTensor()])
-    img_tensor = trans(image).unsqueeze(0).to(device)
-
-    # # Plot the transformed image
-    img = img_tensor.squeeze().cpu().numpy()  # Squeeze and move to CPU
-    plt.imshow(img, cmap='gray')
-    plt.show()
-
-    # Make prediction
-    with torch.no_grad():
-        #outputs = model(images[0].unsqueeze(0).to(device))  # Note: using img_tensor instead of image
-        outputs = model(img_tensor)
-
-    print(f'Outputs: {outputs}')
-
-    alpha, dirichlet_strength, uncertainty = dempster_shafer(outputs)
-    prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
-
-    _, predicted_class = torch.max(outputs, 1)
-
-    # Convert to numpy for readability
-    predicted_class = predicted_class.cpu().item()
-
-    print(f'Alpha: {alpha}')
-    print(f'Dirichlet Strength: {dirichlet_strength}')
-    print(f'Uncertainty: {uncertainty}')
-    print(f'Predicted Class: {predicted_class}')
-
-
-def classify_image(model_path, image_path, input_size=28, num_classes=10):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # Load the model
-    model = EDLNet(input_channels=1 if input_size == 28 else 3, num_classes=num_classes, input_size=input_size)
-    try:
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        print(f"Model loaded successfully from {model_path}")
-    except Exception as e:
-        print(f"Error loading the model from {model_path}: {e}")
-        return
-
-    model = model.to(device)
-    model.eval()
-
-    # Load and preprocess the image
-    image = Image.open(image_path).convert('L' if input_size == 28 else 'RGB')
-    transform = transforms.Compose([
-        transforms.Resize((input_size, input_size)),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,)) if input_size == 28 else transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
-    img_tensor = transform(image).unsqueeze(0).to(device)
-
-    # Plot the image
-    plt.imshow(image, cmap='gray' if input_size == 28 else None)
-    plt.show()
-
-    # Make prediction
-    with torch.no_grad():
-        outputs = model(img_tensor)
-
-    print(f'Outputs: {outputs}')
-
-    # Apply Dempster-Shafer theory to get alpha, dirichlet_strength, and uncertainty
-    alpha, dirichlet_strength, uncertainty = dempster_shafer(outputs)
-    prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
-
-    _, predicted_class = torch.max(outputs, 1)
-
-    # Convert to numpy for readability
-    predicted_class = predicted_class.cpu().item()
-
-    print(f'Alpha: {alpha}')
-    print(f'Dirichlet Strength: {dirichlet_strength}')
-    print(f'Uncertainty: {uncertainty}')
-    print(f'Predicted Class: {predicted_class}')
-
-    # Plot the Dirichlet parameters
-    plot_dirichlet_parameters(alpha)
-
-    return predicted_class

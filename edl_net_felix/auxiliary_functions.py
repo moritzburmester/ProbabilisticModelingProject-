@@ -1,3 +1,7 @@
+from sklearn.metrics import precision_recall_fscore_support, confusion_matrix, classification_report
+import pandas as pd
+import seaborn as sns
+from PIL import Image
 import torch
 import torchvision
 import torchvision.transforms as transforms
@@ -11,17 +15,14 @@ import matplotlib.tri as tri
 import matplotlib.gridspec as gridspec
 from scipy.ndimage import rotate
 
-
 ############################################################################################################
 #                           Data Loader and data manipulation functions                                    #
 ############################################################################################################
 
 norm_mean_std = {
     'MNIST': ([0.5], [0.5]),
-    'CIFAR10': ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
     'FashionMNIST': ([0.5], [0.5])
 }
-
 
 def get_data_loaders(dataset_name, batch_size=32, num_workers=0, root='./data', selected_classes=None):
     transform = transforms.Compose([
@@ -32,9 +33,6 @@ def get_data_loaders(dataset_name, batch_size=32, num_workers=0, root='./data', 
     if dataset_name == 'MNIST':
         train_dataset = torchvision.datasets.MNIST(root=root, train=True, download=True, transform=transform)
         test_dataset = torchvision.datasets.MNIST(root=root, train=False, download=True, transform=transform)
-    elif dataset_name == 'CIFAR10':
-        train_dataset = torchvision.datasets.CIFAR10(root=root, train=True, download=True, transform=transform)
-        test_dataset = torchvision.datasets.CIFAR10(root=root, train=False, download=True, transform=transform)
     elif dataset_name == 'FashionMNIST':
         train_dataset = torchvision.datasets.FashionMNIST(root=root, train=True, download=True, transform=transform)
         test_dataset = torchvision.datasets.FashionMNIST(root=root, train=False, download=True, transform=transform)
@@ -58,7 +56,6 @@ def get_data_loaders(dataset_name, batch_size=32, num_workers=0, root='./data', 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     return train_loader, test_loader
-
 
 def denormalize(image, mean, std):
     for t, m, s in zip(image, mean, std):
@@ -86,8 +83,8 @@ def plot_first_images_of_each_class(dataloader, num_classes, dataset_name):
     fig, axes = plt.subplots(1, num_classes, figsize=(15, 15))
     for img, lbl, ax in zip(images, labels_batch, axes):
         img, lbl = img
-        img = img.numpy().transpose(1, 2, 0) if dataset_name == 'CIFAR10' else img.numpy().squeeze()
-        ax.imshow(img, cmap='gray' if dataset_name != 'CIFAR10' else None)
+        img = img.numpy().squeeze()
+        ax.imshow(img, cmap='gray')
         ax.set_title(f'Class: {lbl}')
         ax.axis('off')
 
@@ -102,7 +99,6 @@ def image_size_channels(dataloader):
 ############################################################################################################
 #                              Visualization of Dirichlet Distribution                                     #
 ############################################################################################################
-
 
 _corners = np.array([[0, 0], [1, 0], [0.5, 0.75 ** 0.5]])
 _AREA = 0.5 * 1 * 0.75 ** 0.5
@@ -336,7 +332,7 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
     plt.show()
 
 #plotting the development of uncertainty and evidence
-def plot_training_metrics(train_evidences, train_uncertainties, num_epochs):
+def plot_training_metrics(train_evidences, train_uncertainties, num_epochs, save_dir='plots'):
     epochs = range(1, num_epochs + 1)
 
     fig, ax1 = plt.subplots(figsize=(12, 6))
@@ -358,5 +354,136 @@ def plot_training_metrics(train_evidences, train_uncertainties, num_epochs):
     fig.tight_layout()  # Adjusts the padding to fit the elements in the figure area
     fig.subplots_adjust(top=0.9)  # Adjust the top of the subplot to fit the title
     plt.title('Evidence (Dirichlet Strength) and Uncertainty during Training')
+
+    # Save the plot
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    plt.savefig(os.path.join(save_dir, 'uncertainty_evidence_during_training.png'))
+
     plt.show()
 
+############################################################################################################
+#                                       evaluation function                                             #
+############################################################################################################
+def evaluate_during_training(model, data_loader, num_classes, selected_classes):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    model.eval()
+
+    with torch.no_grad():
+        n_correct = 0
+        n_samples = 0
+
+        for images, labels in data_loader:
+            images = images.to(device)
+            labels = labels.to(device)
+            outputs = model(images)
+
+            _, predicted = torch.max(outputs, 1)
+            n_correct += (predicted == labels).sum().item()
+            n_samples += labels.size(0)
+
+    acc = 100.0 * n_correct / n_samples
+
+    return acc
+
+
+def evaluate(model, data_loader, num_classes, selected_classes, save_dir='plots'):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    model.eval()
+
+    all_labels = []
+    all_predictions = []
+
+    with torch.no_grad():
+        n_correct = 0
+        n_samples = 0
+
+        for images, labels in data_loader:
+            images = images.to(device)
+            labels = labels.to(device)
+            outputs = model(images)
+
+            _, predicted = torch.max(outputs, 1)
+            n_correct += (predicted == labels).sum().item()
+
+            all_labels.extend(labels.cpu().numpy())
+            all_predictions.extend(predicted.cpu().numpy())
+            n_samples += labels.size(0)
+
+    acc = 100.0 * n_correct / n_samples
+
+    # Map predictions and labels back to the original class names
+    all_labels = [selected_classes[label] for label in all_labels]
+    all_predictions = [selected_classes[pred] for pred in all_predictions]
+
+    # Calculate precision, recall, F1-score
+    precision, recall, f1, _ = precision_recall_fscore_support(all_labels, all_predictions, average='weighted', zero_division=1)
+
+    # Print classification report
+    print('\nClassification Report:')
+    print(classification_report(all_labels, all_predictions, target_names=[str(cls) for cls in selected_classes], zero_division=1))
+
+    # Compute confusion matrix
+    cm = confusion_matrix(all_labels, all_predictions)
+    cm_df = pd.DataFrame(cm, index=[str(cls) for cls in selected_classes], columns=[str(cls) for cls in selected_classes])
+
+    # Plot confusion matrix with increased font size for annotations
+    plt.figure(figsize=(12, 10))
+    ax = sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', cbar_kws={'label': 'Scale'}, annot_kws={"size": 12})  # Adjust font size and color map
+    plt.xlabel('Predicted', fontsize=16)
+    plt.ylabel('Actual', fontsize=16)
+    plt.title('Confusion Matrix', fontsize=20)
+
+    # Save the confusion matrix plot
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    plt.savefig(os.path.join(save_dir, 'confusion_matrix.png'))
+
+    # Show the plot
+    plt.show()
+
+    return acc, precision, recall, f1
+
+def classify_uploaded_image(model, image_path, input_size=28, selected_classes=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Load and preprocess the image
+    image = Image.open(image_path).convert('L' if input_size == 28 else 'RGB')
+    transform = transforms.Compose([
+        transforms.Resize((input_size, input_size)),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5,), (0.5,)) if input_size == 28 else transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
+    img_tensor = transform(image).unsqueeze(0).to(device)
+
+    # Plot the image
+    plt.imshow(image, cmap='gray' if input_size == 28 else None)
+    plt.title('Uploaded Image')
+    plt.show()
+
+    # Make prediction
+    model = model.to(device)
+    model.eval()
+    with torch.no_grad():
+        outputs = model(img_tensor)
+
+    print(f'Outputs: {outputs}')
+
+    # Apply Dempster-Shafer theory to get alpha, dirichlet_strength, and uncertainty
+    alpha, dirichlet_strength, uncertainty = dempster_shafer(outputs)
+    prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
+
+    _, predicted_class = torch.max(outputs, 1)
+
+    # Convert to numpy for readability
+    predicted_class = predicted_class.cpu().item()
+
+    print(f'Alpha: {alpha}')
+    print(f'Dirichlet Strength: {dirichlet_strength}')
+    print(f'Uncertainty: {uncertainty}')
+    print(f'Predicted Class: {selected_classes[predicted_class]}')
+    print(f'Predicted Probability: {prob[0][predicted_class].cpu().item()}')
+
+    return selected_classes[predicted_class]
