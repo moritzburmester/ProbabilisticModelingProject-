@@ -7,6 +7,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+from torch.autograd import Variable
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.ndimage as nd
@@ -55,7 +56,7 @@ def get_data_loaders(dataset_name, batch_size=32, num_workers=0, root='./data', 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-    return train_loader, test_loader
+    return test_dataset, train_loader, test_loader
 
 def denormalize(image, mean, std):
     for t, m, s in zip(image, mean, std):
@@ -207,14 +208,61 @@ def dempster_shafer(nn_output):
 
     return concentration, dirichlet_strength, uncertainty
 
+
+
+def plot_training_metrics(evidences, uncertainties, losses, loglikelihood_errors, loglikelihood_variances,
+                          kl_divergences, num_epochs):
+    epochs = range(1, num_epochs + 1)
+
+    plt.figure(figsize=(12, 8))
+
+    plt.subplot(2, 3, 1)
+    plt.plot(epochs, evidences, label='Evidence')
+    plt.xlabel('Epochs')
+    plt.ylabel('Evidence')
+    plt.legend()
+
+    plt.subplot(2, 3, 2)
+    plt.plot(epochs, uncertainties, label='Uncertainty')
+    plt.xlabel('Epochs')
+    plt.ylabel('Uncertainty')
+    plt.legend()
+
+    plt.subplot(2, 3, 3)
+    plt.plot(epochs, losses, label='Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+
+    plt.subplot(2, 3, 4)
+    plt.plot(epochs, loglikelihood_errors, label='Loglikelihood Error')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loglikelihood Error')
+    plt.legend()
+
+    plt.subplot(2, 3, 5)
+    plt.plot(epochs, loglikelihood_variances, label='Loglikelihood Variance')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loglikelihood Variance')
+    plt.legend()
+
+    plt.subplot(2, 3, 6)
+    plt.plot(epochs, kl_divergences, label='KL Divergence')
+    plt.xlabel('Epochs')
+    plt.ylabel('KL Divergence')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
 ############################################################################################################
 #                Visualization of testing an adversarial example displaying the uncertainty                #
 ############################################################################################################
 
-def unnormalize(img, mean, std):
+'''def unnormalize(img, mean, std):
     img = img * std + mean
-    return img
-
+    return img'''
+'''
 def rotate_img(img, angle, img_size, channels):
     if channels == 1:
         return rotate(img.reshape(img_size), angle, reshape=False).ravel()
@@ -330,36 +378,137 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
     # Save the combined plot
     plt.savefig(f'{plot_dir}/testing_rotation.png')
     plt.show()
+'''
 
-#plotting the development of uncertainty and evidence
-def plot_training_metrics(train_evidences, train_uncertainties, num_epochs, save_dir='plots'):
-    epochs = range(1, num_epochs + 1)
+def rotate_img(x, deg):
+    return nd.rotate(x.reshape(28, 28), deg, reshape=False).ravel()
 
-    fig, ax1 = plt.subplots(figsize=(12, 6))
+def test_single_image(model, img_path, num_classes=10):
+    img = Image.open(img_path).convert("L")
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    trans = transforms.Compose([transforms.Resize((28, 28)), transforms.ToTensor()])
+    img_tensor = trans(img)
+    img_tensor.unsqueeze_(0)
+    img_variable = Variable(img_tensor)
+    img_variable = img_variable.to(device)
 
-    color = 'tab:blue'
-    ax1.set_xlabel('Epoch')
-    ax1.set_ylabel('Evidence (Dirichlet Strength)', color=color)
-    ax1.plot(epochs, train_evidences, label='Evidence (Dirichlet Strength)', color=color)
-    ax1.tick_params(axis='y', labelcolor=color)
-    ax1.legend(loc='upper left')
 
-    ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-    color = 'tab:red'
-    ax2.set_ylabel('Uncertainty', color=color)  # we already handled the x-label with ax1
-    ax2.plot(epochs, train_uncertainties, label='Uncertainty', color=color)
-    ax2.tick_params(axis='y', labelcolor=color)
-    ax2.legend(loc='upper right')
+    output = model(img_variable)
+    alpha, diri_strength, uncertainty = dempster_shafer(output)
+    _, preds = torch.max(output, 1)
+    prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
+    output = output.flatten()
+    prob = prob.flatten()
+    preds = preds.flatten()
+    print("Predict:", preds[0])
+    print("Probs:", prob)
+    print("Uncertainty:", uncertainty)
 
-    fig.tight_layout()  # Adjusts the padding to fit the elements in the figure area
-    fig.subplots_adjust(top=0.9)  # Adjust the top of the subplot to fit the title
-    plt.title('Evidence (Dirichlet Strength) and Uncertainty during Training')
 
-    # Save the plot
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    plt.savefig(os.path.join(save_dir, 'uncertainty_evidence_during_training.png'))
+    labels = np.arange(num_classes)
+    fig = plt.figure(figsize=[6.2, 5])
+    fig, axs = plt.subplots(1, 2, gridspec_kw={"width_ratios": [1, 3]})
 
+    plt.title("Classified as: {}, Uncertainty: {}".format(preds[0], uncertainty.item()))
+
+    axs[0].set_title("One")
+    axs[0].imshow(img, cmap="gray")
+    axs[0].axis("off")
+
+    axs[1].bar(labels, prob.cpu().detach().numpy(), width=0.5)
+    axs[1].set_xlim([0, 9])
+    axs[1].set_ylim([0, 1])
+    axs[1].set_xticks(np.arange(10))
+    axs[1].set_xlabel("Classes")
+    axs[1].set_ylabel("Classification Probability")
+
+    fig.tight_layout()
+
+    plt.savefig("./plots/{}".format(os.path.basename(img_path)))
+
+    plt.show()
+
+
+from PIL import Image
+import numpy as np
+import torch
+from torch.autograd import Variable
+import matplotlib.pyplot as plt
+import torchvision.transforms as transforms
+
+def rotating_image_classification(
+    model, img, filename, threshold=0.5, num_classes=10
+):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    Mdeg = 180
+    Ndeg = int(Mdeg / 10) + 1
+    ldeg = []
+    lp = []
+    lu = []
+    classifications = []
+
+    scores = np.zeros((1, num_classes))
+    rimgs = np.zeros((28, 28 * Ndeg))
+    for i, deg in enumerate(np.linspace(0, Mdeg, Ndeg)):
+        nimg = rotate_img(np.array(img), deg).reshape(28, 28)
+
+        nimg = np.clip(a=nimg, a_min=0, a_max=1)
+
+        rimgs[:, i * 28 : (i + 1) * 28] = nimg
+        trans = transforms.ToTensor()
+        img_tensor = trans(nimg)
+        img_tensor.unsqueeze_(0)
+        img_variable = Variable(img_tensor)
+        img_variable = img_variable.to(device)
+
+        output = model(img_variable)
+        alpha, diri_strength, uncertainty = dempster_shafer(output)
+        uncertainty = num_classes / torch.sum(alpha, dim=1, keepdim=True)
+        _, preds = torch.max(output, 1)
+        prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
+        output = output.flatten()
+        prob = prob.flatten()
+        preds = preds.flatten()
+        classifications.append(preds[0].item())
+        lu.append(uncertainty.mean().detach().cpu().numpy())
+
+        scores += prob.detach().cpu().numpy() >= threshold
+        ldeg.append(deg)
+        lp.append(prob.tolist())
+
+    labels = np.arange(num_classes)[scores[0].astype(bool)]
+    lp = np.array(lp)[:, labels]
+    c = ["black", "blue", "red", "brown", "purple", "cyan"]
+    marker = ["s", "^", "o"] * 2
+    labels = labels.tolist()
+    fig = plt.figure(figsize=[6.2, 5])
+    fig, axs = plt.subplots(3, gridspec_kw={"height_ratios": [4, 1, 12]})
+
+    for i in range(len(labels)):
+        axs[2].plot(ldeg, lp[:, i], marker=marker[i], c=c[i])
+
+    labels += ["uncertainty"]
+    axs[2].plot(ldeg, lu, marker="<", c="red")
+
+    print(classifications)
+
+    axs[0].set_title('Rotated "1" Digit Classifications')
+    axs[0].imshow(1 - rimgs, cmap="gray")
+    axs[0].axis("off")
+    plt.pause(0.001)
+
+    empty_lst = []
+    empty_lst.append(classifications)
+    axs[1].table(cellText=empty_lst, bbox=[0, 1.2, 1, 1])
+    axs[1].axis("off")
+
+    axs[2].legend(labels)
+    axs[2].set_xlim([0, Mdeg])
+    axs[2].set_ylim([0, 1])
+    axs[2].set_xlabel("Rotation Degree")
+    axs[2].set_ylabel("Classification Probability")
+
+    plt.savefig(filename)
     plt.show()
 
 ############################################################################################################
@@ -386,7 +535,6 @@ def evaluate_during_training(model, data_loader, num_classes, selected_classes):
     acc = 100.0 * n_correct / n_samples
 
     return acc
-
 
 def evaluate(model, data_loader, num_classes, selected_classes, save_dir='plots'):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

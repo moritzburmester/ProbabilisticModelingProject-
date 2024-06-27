@@ -109,8 +109,8 @@ def edl_mse_loss(target, epoch_num, num_classes, annealing_step, alpha):
     # KL Divergence Calculation
     kl_alpha = (alpha - 1) * (1 - y) + 1
 
-    #ones = torch.ones([1, num_classes], dtype=torch.float32, device=device)
-    ones = torch.ones_like(alpha)  # Ensure `ones` matches the size of `alpha`
+    # Ensure `ones` matches the size of `alpha`
+    ones = torch.ones_like(alpha)
     sum_kl_alpha = torch.sum(kl_alpha, dim=1, keepdim=True)
     first_term = (
             torch.lgamma(sum_kl_alpha)
@@ -135,7 +135,8 @@ def edl_mse_loss(target, epoch_num, num_classes, annealing_step, alpha):
 
     # Total Loss
     loss = torch.mean(loglikelihood + kl_div)
-    return loss
+
+    return loss, torch.mean(loglikelihood_err), torch.mean(loglikelihood_var), torch.mean(kl_div)
 
 
 def model_training(
@@ -160,6 +161,9 @@ def model_training(
     train_losses = []
     train_accuracies = []
     test_accuracies = []
+    loglikelihood_errors = []
+    loglikelihood_variances = []
+    kl_divergences = []
 
     class_mapping = {i: selected_classes[i] for i in range(len(selected_classes))}
 
@@ -172,6 +176,9 @@ def model_training(
         epoch_loss = 0.0
         epoch_evidence = 0.0
         epoch_uncertainty = 0.0
+        epoch_loglikelihood_error = 0.0
+        epoch_loglikelihood_variance = 0.0
+        epoch_kl_divergence = 0.0
 
         for i, (inputs, labels) in enumerate(train_loader):
             # train the model
@@ -190,11 +197,15 @@ def model_training(
             alpha, dirichlet_strength, uncertainty = dempster_shafer(outputs)
 
             labels = torch.eye(num_classes)[labels].float()
-            loss = edl_mse_loss(target=labels.float(), epoch_num=epoch, annealing_step=10,
-                                num_classes=num_classes, alpha=alpha)
+            loss, loglikelihood_err, loglikelihood_var, kl_div = edl_mse_loss(
+                target=labels.float(), epoch_num=epoch, annealing_step=10,
+                num_classes=num_classes, alpha=alpha
+            )
 
             epoch_loss += loss.item()
-
+            epoch_loglikelihood_error += loglikelihood_err.item()
+            epoch_loglikelihood_variance += loglikelihood_var.item()
+            epoch_kl_divergence += kl_div.item()
             epoch_evidence += torch.mean(dirichlet_strength).item()
             epoch_uncertainty += torch.mean(uncertainty).item()
 
@@ -206,6 +217,9 @@ def model_training(
         test_accuracies.append(test_accuracy)
         print(f"Epoch {epoch + 1}/{num_epochs}, "
               f"Loss: {(epoch_loss / (i + 1)):.4f}, "
+              f"Loglikelihood Error: {(epoch_loglikelihood_error / (i + 1)):.4f}, "
+              f"Loglikelihood Variance: {(epoch_loglikelihood_variance / (i + 1)):.4f}, "
+              f"KL Divergence: {(epoch_kl_divergence / (i + 1)):.4f}, "
               f"Avg. Evidence: {(epoch_evidence / (i + 1)):.4f}, "
               f"Avg. Uncertainty: {(epoch_uncertainty / (i + 1)):.4f}, "
               f"Train Accuracy: {train_accuracy:.2f}%, "
@@ -226,6 +240,9 @@ def model_training(
 
         # epoch loss
         train_losses.append(epoch_loss / len(train_loader))
+        loglikelihood_errors.append(epoch_loglikelihood_error / len(train_loader))
+        loglikelihood_variances.append(epoch_loglikelihood_variance / len(train_loader))
+        kl_divergences.append(epoch_kl_divergence / len(train_loader))
         print("Epoch Loss: {:.4f}".format(epoch_loss / len(train_loader)))
 
         if visualize_dir:
@@ -244,9 +261,9 @@ def model_training(
     print(f'Model saved to {save_path}')
 
     # Perform rotating image classification to demonstrate uncertainty
-    rotating_image_classification(
-        test_loader, model, dataclass=4, num_classes=num_classes, threshold=0.5, selected_classes=selected_classes
-    )
+    #rotating_image_classification(
+        #test_loader, model, dataclass=1, num_classes=num_classes, threshold=0.5, selected_classes=selected_classes)
 
     # Plotting metrics
-    plot_training_metrics(train_evidences, train_uncertainties, num_epochs)
+    plot_training_metrics(train_evidences, train_uncertainties, train_losses, loglikelihood_errors,
+                          loglikelihood_variances, kl_divergences, num_epochs)
