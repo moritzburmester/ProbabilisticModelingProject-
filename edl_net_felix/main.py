@@ -16,7 +16,7 @@ def main():
     img_path = './data/image.png'  # Path to the uploaded image
 
     # Loading the data
-    test_dataset, train_loader, test_loader = get_data_loaders(dataset_name, batch_size=500, num_workers=0, root='./data',
+    test_dataset, train_loader, test_loader = get_data_loaders(dataset_name, batch_size=1000, num_workers=0, root='./data',
                                                  selected_classes=selected_classes)
 
     # Plot the first image of each class
@@ -63,7 +63,7 @@ def main():
         rotating_image_classification(
             model, img=digit_one, threshold=0.5, num_classes=num_classes,
             selected_classes=selected_classes, plot_dir='rotation_classification', file_name=f'rotating_image_{idx}')
-        if idx >= 5:  # Stop after processing 3 images
+        if idx >= 2:  # Stop after processing 3 images
             break
 
 if __name__ == "__main__":

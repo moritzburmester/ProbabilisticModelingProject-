@@ -428,9 +428,8 @@ def test_single_image(model, img_path, num_classes=10):
 
     plt.show()
 
-def rotating_image_classification(
-    model, img, threshold=0.5, num_classes=10, selected_classes=None, plot_dir='rotation_classification', file_name='rotating_image'
-):
+
+def rotating_image_classification(model, img, threshold=0.5, num_classes=10, selected_classes=None, plot_dir='rotation_classification', file_name='rotating_image'):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     Mdeg = 180
     Ndeg = int(Mdeg / 10) + 1
@@ -459,26 +458,27 @@ def rotating_image_classification(
         output = output.flatten()
         prob = prob.flatten()
         preds = preds.flatten()
-        classifications.append(preds[0].item())
+        classifications.append(selected_classes[preds[0].item()])
         lu.append(uncertainty.mean().detach().cpu().numpy())
 
         scores += prob.detach().cpu().numpy() >= threshold
         ldeg.append(deg)
         lp.append(prob.tolist())
 
+    print(f"Classifications: {classifications}")
     labels = np.arange(num_classes)[scores[0].astype(bool)]
     lp = np.array(lp)[:, labels]
-    c = ['black', 'blue', 'brown', 'red', 'purple', 'cyan']
+    c = ['black', 'blue', 'brown', 'purple', 'cyan', 'red', 'green']
     marker = ['s', '^', 'o'] * 2
     labels = [selected_classes[label] for label in labels.tolist()]
 
-    fig = plt.figure(figsize=(10, 8))
-    gs = gridspec.GridSpec(2, 1, height_ratios=[2, 1], hspace=0.05)
-    fig.suptitle(f"Classification and uncertainty for rotated image of class {selected_classes[classifications[0]]}",
-                 fontsize=14)
+    fig = plt.figure(figsize=(10, 8))  # Adjusted figure size for better layout
+    gs = gridspec.GridSpec(3, 1, height_ratios=[2, 1, 0.2], hspace=0.05)  # Updated GridSpec with three rows
+    fig.suptitle(f"Classification and uncertainty for rotated image of class {selected_classes[classifications[0]]}", fontsize=14)
 
     ax0 = plt.subplot(gs[0])
     ax1 = plt.subplot(gs[1])
+    ax2 = plt.subplot(gs[2])
 
     for i in range(len(labels)):
         ax0.plot(ldeg, lp[:, i], marker=marker[i], c=c[i])
@@ -495,12 +495,22 @@ def rotating_image_classification(
     ax1.imshow(1 - rimgs, cmap='gray', aspect='equal')
     ax1.axis('off')
 
+    # Add classifications as a single row table
+    ax2.axis('off')
+    table_data = [classifications]
+    table = ax2.table(cellText=table_data, cellLoc='center', loc='center', edges='open')
+    table.auto_set_font_size(False)
+    table.set_fontsize(12)
+    table.scale(1, 1.5)
+    ax2.set_title('Classifications')
+
+    for key, cell in table.get_celld().items():
+        cell.set_linewidth(1)
+
     if not os.path.exists(plot_dir):
         os.makedirs(plot_dir)
     plt.savefig(os.path.join(plot_dir, f'{file_name}.png'))
     plt.show()
-
-
 
 ############################################################################################################
 #                                       evaluation function                                             #
