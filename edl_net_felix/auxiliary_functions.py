@@ -411,7 +411,7 @@ def test_single_image(model, img_path, num_classes=10):
 
     plt.title("Classified as: {}, Uncertainty: {}".format(preds[0], uncertainty.item()))
 
-    axs[0].set_title("One")
+    axs[0].set_title("Image")
     axs[0].imshow(img, cmap="gray")
     axs[0].axis("off")
 
@@ -428,16 +428,8 @@ def test_single_image(model, img_path, num_classes=10):
 
     plt.show()
 
-
-from PIL import Image
-import numpy as np
-import torch
-from torch.autograd import Variable
-import matplotlib.pyplot as plt
-import torchvision.transforms as transforms
-
 def rotating_image_classification(
-    model, img, filename, threshold=0.5, num_classes=10
+    model, img, threshold=0.5, num_classes=10, selected_classes=None, plot_dir='rotation_classification', file_name='rotating_image'
 ):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     Mdeg = 180
@@ -451,10 +443,8 @@ def rotating_image_classification(
     rimgs = np.zeros((28, 28 * Ndeg))
     for i, deg in enumerate(np.linspace(0, Mdeg, Ndeg)):
         nimg = rotate_img(np.array(img), deg).reshape(28, 28)
-
         nimg = np.clip(a=nimg, a_min=0, a_max=1)
-
-        rimgs[:, i * 28 : (i + 1) * 28] = nimg
+        rimgs[:, i * 28: (i + 1) * 28] = nimg
         trans = transforms.ToTensor()
         img_tensor = trans(nimg)
         img_tensor.unsqueeze_(0)
@@ -478,38 +468,39 @@ def rotating_image_classification(
 
     labels = np.arange(num_classes)[scores[0].astype(bool)]
     lp = np.array(lp)[:, labels]
-    c = ["black", "blue", "red", "brown", "purple", "cyan"]
-    marker = ["s", "^", "o"] * 2
-    labels = labels.tolist()
-    fig = plt.figure(figsize=[6.2, 5])
-    fig, axs = plt.subplots(3, gridspec_kw={"height_ratios": [4, 1, 12]})
+    c = ['black', 'blue', 'brown', 'red', 'purple', 'cyan']
+    marker = ['s', '^', 'o'] * 2
+    labels = [selected_classes[label] for label in labels.tolist()]
+
+    fig = plt.figure(figsize=(10, 8))
+    gs = gridspec.GridSpec(2, 1, height_ratios=[2, 1], hspace=0.05)
+    fig.suptitle(f"Classification and uncertainty for rotated image of class {selected_classes[classifications[0]]}",
+                 fontsize=14)
+
+    ax0 = plt.subplot(gs[0])
+    ax1 = plt.subplot(gs[1])
 
     for i in range(len(labels)):
-        axs[2].plot(ldeg, lp[:, i], marker=marker[i], c=c[i])
+        ax0.plot(ldeg, lp[:, i], marker=marker[i], c=c[i])
 
-    labels += ["uncertainty"]
-    axs[2].plot(ldeg, lu, marker="<", c="red")
+    if len(lu) > 0:
+        labels += ['uncertainty']
+        ax0.plot(ldeg, lu, marker='<', c='red')
 
-    print(classifications)
+    ax0.legend(labels)
+    ax0.set_xlim([0, Mdeg])
+    ax0.set_xlabel('Rotation Degree')
+    ax0.set_ylabel('Classification Probability')
 
-    axs[0].set_title('Rotated "1" Digit Classifications')
-    axs[0].imshow(1 - rimgs, cmap="gray")
-    axs[0].axis("off")
-    plt.pause(0.001)
+    ax1.imshow(1 - rimgs, cmap='gray', aspect='equal')
+    ax1.axis('off')
 
-    empty_lst = []
-    empty_lst.append(classifications)
-    axs[1].table(cellText=empty_lst, bbox=[0, 1.2, 1, 1])
-    axs[1].axis("off")
-
-    axs[2].legend(labels)
-    axs[2].set_xlim([0, Mdeg])
-    axs[2].set_ylim([0, 1])
-    axs[2].set_xlabel("Rotation Degree")
-    axs[2].set_ylabel("Classification Probability")
-
-    plt.savefig(filename)
+    if not os.path.exists(plot_dir):
+        os.makedirs(plot_dir)
+    plt.savefig(os.path.join(plot_dir, f'{file_name}.png'))
     plt.show()
+
+
 
 ############################################################################################################
 #                                       evaluation function                                             #
