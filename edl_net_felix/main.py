@@ -8,12 +8,12 @@ from auxiliary_functions import (plot_dirichlet_parameters, get_data_loaders, cl
 def main():
     # Configuration parameters
     selected_classes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]  # Select classes
-    num_epochs = 25
+    num_epochs = 2
     num_classes = len(selected_classes)  # Dynamically set the number of classes based on selected_classes
     dataset_name = 'MNIST'  # Focus on MNIST
     save_path = './edl_mnist.pth'
     image_path = './data/yoda.jpg'  # Path to the uploaded image
-    img_path = './data/image.png'  # Path to the uploaded image
+    img_path = './data/yoda.jpg'  # Path to the uploaded image 2nd function
 
     # Loading the data
     test_dataset, train_loader, test_loader = get_data_loaders(dataset_name, batch_size=1000, num_workers=0, root='./data',
@@ -32,7 +32,7 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
 
-    model_training(
+    model = model_training(
         model,
         train_loader,
         test_loader,
@@ -44,7 +44,8 @@ def main():
         visualize_dir=False,
     )
 
-    # Evaluate the model using the full evaluation function
+
+    # Evaluate the model using different eval functions
     print("Final Evaluation:")
     evaluate(model, test_loader, num_classes, selected_classes)
 
@@ -61,9 +62,9 @@ def main():
     for idx, (image_idx, (digit_one, _)) in enumerate(digit_one_images):
         print(f'Using image at index {image_idx} from test_dataset for visualization.')
         rotating_image_classification(
-            model, img=digit_one, threshold=0.5, num_classes=num_classes,
+            model, img=digit_one, threshold=0.3, num_classes=num_classes,
             selected_classes=selected_classes, plot_dir='rotation_classification', file_name=f'rotating_image_{idx}')
-        if idx >= 2:  # Stop after processing 3 images
+        if idx >= 1:  # Stop after processing 3 images
             break
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ import scipy.ndimage as nd
 import os
 import matplotlib.tri as tri
 import matplotlib.gridspec as gridspec
-from scipy.ndimage import rotate
+from scipy.ndimage import rotate as nd_rotate
 
 ############################################################################################################
 #                           Data Loader and data manipulation functions                                    #
@@ -96,6 +96,7 @@ def image_size_channels(dataloader):
     size = images.shape[-1]
     channels = images.shape[1]
     return size, channels
+
 
 ############################################################################################################
 #                              Visualization of Dirichlet Distribution                                     #
@@ -193,7 +194,6 @@ def plot_dirichlet_parameters(alpha_list):
 ############################################################################################################
 #           Transformation of NN Output into evidence and uncertainty with Dempster Shafer                 #
 ############################################################################################################
-
 def dempster_shafer(nn_output):
     # evidence
     evidence = F.relu(nn_output)
@@ -209,7 +209,9 @@ def dempster_shafer(nn_output):
     return concentration, dirichlet_strength, uncertainty
 
 
-
+############################################################################################################
+#                                       Plotting training metrics                                          #
+############################################################################################################
 def plot_training_metrics(evidences, uncertainties, losses, loglikelihood_errors, loglikelihood_variances,
                           kl_divergences, num_epochs):
     epochs = range(1, num_epochs + 1)
@@ -254,6 +256,92 @@ def plot_training_metrics(evidences, uncertainties, losses, loglikelihood_errors
 
     plt.tight_layout()
     plt.show()
+
+
+############################################################################################################
+#                                          evaluation function                                             #
+############################################################################################################
+def evaluate_during_training(model, data_loader, num_classes, selected_classes):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    model.eval()
+
+    with torch.no_grad():
+        n_correct = 0
+        n_samples = 0
+
+        for images, labels in data_loader:
+            images = images.to(device)
+            labels = labels.to(device)
+            outputs = model(images)
+
+            _, predicted = torch.max(outputs, 1)
+            n_correct += (predicted == labels).sum().item()
+            n_samples += labels.size(0)
+
+    acc = 100.0 * n_correct / n_samples
+
+    return acc
+
+def evaluate(model, data_loader, num_classes, selected_classes, save_dir='plots'):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    model.eval()
+
+    all_labels = []
+    all_predictions = []
+
+    with torch.no_grad():
+        n_correct = 0
+        n_samples = 0
+
+        for images, labels in data_loader:
+            images = images.to(device)
+            labels = labels.to(device)
+            outputs = model(images)
+
+            _, predicted = torch.max(outputs, 1)
+            n_correct += (predicted == labels).sum().item()
+
+            all_labels.extend(labels.cpu().numpy())
+            all_predictions.extend(predicted.cpu().numpy())
+            n_samples += labels.size(0)
+
+    acc = 100.0 * n_correct / n_samples
+
+    # Map predictions and labels back to the original class names
+    all_labels = [selected_classes[label] for label in all_labels]
+    all_predictions = [selected_classes[pred] for pred in all_predictions]
+
+    # Calculate precision, recall, F1-score
+    precision, recall, f1, _ = precision_recall_fscore_support(all_labels, all_predictions, average='weighted', zero_division=1)
+
+    # Print classification report
+    print('\nClassification Report:')
+    print(classification_report(all_labels, all_predictions, target_names=[str(cls) for cls in selected_classes], zero_division=1))
+
+    # Compute confusion matrix
+    cm = confusion_matrix(all_labels, all_predictions)
+    cm_df = pd.DataFrame(cm, index=[str(cls) for cls in selected_classes], columns=[str(cls) for cls in selected_classes])
+
+    # Plot confusion matrix with increased font size for annotations
+    plt.figure(figsize=(12, 10))
+    ax = sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', cbar_kws={'label': 'Scale'}, annot_kws={"size": 12})  # Adjust font size and color map
+    plt.xlabel('Predicted', fontsize=16)
+    plt.ylabel('Actual', fontsize=16)
+    plt.title('Confusion Matrix', fontsize=20)
+
+    # Save the confusion matrix plot
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    plt.savefig(os.path.join(save_dir, 'confusion_matrix.png'))
+
+    # Show the plot
+    plt.show()
+
+    return acc, precision, recall, f1
+
+
 
 ############################################################################################################
 #                Visualization of testing an adversarial example displaying the uncertainty                #
@@ -383,30 +471,27 @@ def rotating_image_classification(dataset, model, dataclass=None, num_classes=10
 def rotate_img(x, deg):
     return nd.rotate(x.reshape(28, 28), deg, reshape=False).ravel()
 
+
 def test_single_image(model, img_path, num_classes=10):
     img = Image.open(img_path).convert("L")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    trans = transforms.Compose([transforms.Resize((28, 28)), transforms.ToTensor()])
-    img_tensor = trans(img)
-    img_tensor.unsqueeze_(0)
-    img_variable = Variable(img_tensor)
-    img_variable = img_variable.to(device)
+    trans = transforms.Compose([transforms.Resize((28, 28)), transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+    img_tensor = trans(img).unsqueeze(0).to(device)  # Ensure normalization and move to device
 
+    model = model.to(device)
+    model.eval()
+    with torch.no_grad():
+        output = model(img_tensor)
 
-    output = model(img_variable)
     alpha, diri_strength, uncertainty = dempster_shafer(output)
     _, preds = torch.max(output, 1)
     prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
+
     output = output.flatten()
     prob = prob.flatten()
     preds = preds.flatten()
-    print("Predict:", preds[0])
-    print("Probs:", prob)
-    print("Uncertainty:", uncertainty)
-
 
     labels = np.arange(num_classes)
-    fig = plt.figure(figsize=[6.2, 5])
     fig, axs = plt.subplots(1, 2, gridspec_kw={"width_ratios": [1, 3]})
 
     plt.title("Classified as: {}, Uncertainty: {}".format(preds[0], uncertainty.item()))
@@ -429,7 +514,12 @@ def test_single_image(model, img_path, num_classes=10):
     plt.show()
 
 
-def rotating_image_classification(model, img, threshold=0.5, num_classes=10, selected_classes=None, plot_dir='rotation_classification', file_name='rotating_image'):
+def rotate_img(x, deg):
+    return nd_rotate(x.reshape(28, 28), deg, reshape=False).ravel()
+
+
+def rotating_image_classification(model, img, threshold=0.5, num_classes=10, selected_classes=None,
+                                  plot_dir='rotation_classification', file_name='rotating_image'):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     Mdeg = 180
     Ndeg = int(Mdeg / 10) + 1
@@ -440,40 +530,44 @@ def rotating_image_classification(model, img, threshold=0.5, num_classes=10, sel
 
     scores = np.zeros((1, num_classes))
     rimgs = np.zeros((28, 28 * Ndeg))
+
+    trans = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+
     for i, deg in enumerate(np.linspace(0, Mdeg, Ndeg)):
         nimg = rotate_img(np.array(img), deg).reshape(28, 28)
         nimg = np.clip(a=nimg, a_min=0, a_max=1)
         rimgs[:, i * 28: (i + 1) * 28] = nimg
-        trans = transforms.ToTensor()
-        img_tensor = trans(nimg)
-        img_tensor.unsqueeze_(0)
-        img_variable = Variable(img_tensor)
-        img_variable = img_variable.to(device)
+        img_tensor = trans(nimg).unsqueeze(0).to(device)  # Ensure normalization and move to device
 
-        output = model(img_variable)
+        model = model.to(device)
+        model.eval()
+        with torch.no_grad():
+            output = model(img_tensor)
         alpha, diri_strength, uncertainty = dempster_shafer(output)
         uncertainty = num_classes / torch.sum(alpha, dim=1, keepdim=True)
         _, preds = torch.max(output, 1)
         prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
-        output = output.flatten()
-        prob = prob.flatten()
-        preds = preds.flatten()
         classifications.append(selected_classes[preds[0].item()])
         lu.append(uncertainty.mean().detach().cpu().numpy())
 
         scores += prob.detach().cpu().numpy() >= threshold
         ldeg.append(deg)
-        lp.append(prob.tolist())
+        lp.append(prob.cpu().numpy())
 
-    print(f"Classifications: {classifications}")
+
     labels = np.arange(num_classes)[scores[0].astype(bool)]
-    lp = np.array(lp)[:, labels]
+
+    # Convert lp to numpy array and squeeze the unnecessary dimension
+    lp_array = np.squeeze(np.array(lp), axis=1)
+
+    lp = lp_array[:, labels]
+
     c = ['black', 'blue', 'brown', 'purple', 'cyan', 'red', 'green']
     marker = ['s', '^', 'o'] * 2
     labels = [selected_classes[label] for label in labels.tolist()]
 
-    fig = plt.figure(figsize=(10, 8))  # Adjusted figure size for better layout
-    gs = gridspec.GridSpec(3, 1, height_ratios=[2, 1, 0.2], hspace=0.05)  # Updated GridSpec with three rows
+    fig = plt.figure(figsize=(10, 8))
+    gs = gridspec.GridSpec(3, 1, height_ratios=[2, 1, 0.2], hspace=0.05)
     fig.suptitle(f"Classification and uncertainty for rotated image of class {selected_classes[classifications[0]]}", fontsize=14)
 
     ax0 = plt.subplot(gs[0])
@@ -495,7 +589,6 @@ def rotating_image_classification(model, img, threshold=0.5, num_classes=10, sel
     ax1.imshow(1 - rimgs, cmap='gray', aspect='equal')
     ax1.axis('off')
 
-    # Add classifications as a single row table
     ax2.axis('off')
     table_data = [classifications]
     table = ax2.table(cellText=table_data, cellLoc='center', loc='center', edges='open')
@@ -512,89 +605,6 @@ def rotating_image_classification(model, img, threshold=0.5, num_classes=10, sel
     plt.savefig(os.path.join(plot_dir, f'{file_name}.png'))
     plt.show()
 
-############################################################################################################
-#                                       evaluation function                                             #
-############################################################################################################
-def evaluate_during_training(model, data_loader, num_classes, selected_classes):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-    model.eval()
-
-    with torch.no_grad():
-        n_correct = 0
-        n_samples = 0
-
-        for images, labels in data_loader:
-            images = images.to(device)
-            labels = labels.to(device)
-            outputs = model(images)
-
-            _, predicted = torch.max(outputs, 1)
-            n_correct += (predicted == labels).sum().item()
-            n_samples += labels.size(0)
-
-    acc = 100.0 * n_correct / n_samples
-
-    return acc
-
-def evaluate(model, data_loader, num_classes, selected_classes, save_dir='plots'):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-    model.eval()
-
-    all_labels = []
-    all_predictions = []
-
-    with torch.no_grad():
-        n_correct = 0
-        n_samples = 0
-
-        for images, labels in data_loader:
-            images = images.to(device)
-            labels = labels.to(device)
-            outputs = model(images)
-
-            _, predicted = torch.max(outputs, 1)
-            n_correct += (predicted == labels).sum().item()
-
-            all_labels.extend(labels.cpu().numpy())
-            all_predictions.extend(predicted.cpu().numpy())
-            n_samples += labels.size(0)
-
-    acc = 100.0 * n_correct / n_samples
-
-    # Map predictions and labels back to the original class names
-    all_labels = [selected_classes[label] for label in all_labels]
-    all_predictions = [selected_classes[pred] for pred in all_predictions]
-
-    # Calculate precision, recall, F1-score
-    precision, recall, f1, _ = precision_recall_fscore_support(all_labels, all_predictions, average='weighted', zero_division=1)
-
-    # Print classification report
-    print('\nClassification Report:')
-    print(classification_report(all_labels, all_predictions, target_names=[str(cls) for cls in selected_classes], zero_division=1))
-
-    # Compute confusion matrix
-    cm = confusion_matrix(all_labels, all_predictions)
-    cm_df = pd.DataFrame(cm, index=[str(cls) for cls in selected_classes], columns=[str(cls) for cls in selected_classes])
-
-    # Plot confusion matrix with increased font size for annotations
-    plt.figure(figsize=(12, 10))
-    ax = sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', cbar_kws={'label': 'Scale'}, annot_kws={"size": 12})  # Adjust font size and color map
-    plt.xlabel('Predicted', fontsize=16)
-    plt.ylabel('Actual', fontsize=16)
-    plt.title('Confusion Matrix', fontsize=20)
-
-    # Save the confusion matrix plot
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    plt.savefig(os.path.join(save_dir, 'confusion_matrix.png'))
-
-    # Show the plot
-    plt.show()
-
-    return acc, precision, recall, f1
-
 def classify_uploaded_image(model, image_path, input_size=28, selected_classes=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -603,7 +613,8 @@ def classify_uploaded_image(model, image_path, input_size=28, selected_classes=[
     transform = transforms.Compose([
         transforms.Resize((input_size, input_size)),
         transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,)) if input_size == 28 else transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        transforms.Normalize((0.5,), (0.5,)) if input_size == 28 else transforms.Normalize(
+            (0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
     img_tensor = transform(image).unsqueeze(0).to(device)
 
@@ -617,8 +628,6 @@ def classify_uploaded_image(model, image_path, input_size=28, selected_classes=[
     model.eval()
     with torch.no_grad():
         outputs = model(img_tensor)
-
-    print(f'Outputs: {outputs}')
 
     # Apply Dempster-Shafer theory to get alpha, dirichlet_strength, and uncertainty
     alpha, dirichlet_strength, uncertainty = dempster_shafer(outputs)
@@ -636,3 +645,4 @@ def classify_uploaded_image(model, image_path, input_size=28, selected_classes=[
     print(f'Predicted Probability: {prob[0][predicted_class].cpu().item()}')
 
     return selected_classes[predicted_class]
+

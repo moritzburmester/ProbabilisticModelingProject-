@@ -182,6 +182,7 @@ def model_training(
 
         for i, (inputs, labels) in enumerate(train_loader):
             # train the model
+
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
@@ -230,6 +231,9 @@ def model_training(
             best_accuracy = test_accuracy
             best_model = copy.deepcopy(model.state_dict())
 
+        # load best model weights
+        model.load_state_dict(best_model)
+
         # epoch uncertainty
         print(f"Epoch Uncertainty: {epoch_uncertainty / len(train_loader):.4f}")
         train_uncertainties.append(epoch_uncertainty / len(train_loader))
@@ -256,9 +260,9 @@ def model_training(
     print(f'Best Test Accuracy: {best_accuracy:.2f}%')
 
     # Save the best model
-    torch.save(best_model, save_path)
-    print("-" * 120)
-    print(f'Model saved to {save_path}')
+    #torch.save(best_model, save_path)
+    #print("-" * 120)
+    #print(f'Model saved to {save_path}')
 
     # Perform rotating image classification to demonstrate uncertainty
     #rotating_image_classification(
@@ -267,3 +271,5 @@ def model_training(
     # Plotting metrics
     plot_training_metrics(train_evidences, train_uncertainties, train_losses, loglikelihood_errors,
                           loglikelihood_variances, kl_divergences, num_epochs)
+
+    return model
