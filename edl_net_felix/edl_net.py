@@ -10,7 +10,7 @@ from sklearn.metrics import precision_recall_fscore_support, confusion_matrix, c
 import seaborn as sns
 import pandas as pd
 
-from auxiliary_functions import (rotating_image_classification, dempster_shafer, plot_training_metrics,
+from auxiliary_functions import (dempster_shafer, plot_training_metrics,
                                  plot_dirichlet_parameters, evaluate_during_training)
 
 class EDLNet(nn.Module):
@@ -199,7 +199,7 @@ def model_training(
 
             labels = torch.eye(num_classes)[labels].float()
             loss, loglikelihood_err, loglikelihood_var, kl_div = edl_mse_loss(
-                target=labels.float(), epoch_num=epoch, annealing_step=10,
+                target=labels.float(), epoch_num=epoch, annealing_step=100,
                 num_classes=num_classes, alpha=alpha
             )
 
