@@ -11,6 +11,7 @@ from torch.autograd import Variable
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.ndimage as nd
+import time
 import os
 import matplotlib.tri as tri
 import matplotlib.gridspec as gridspec
@@ -350,9 +351,12 @@ def evaluate(model, data_loader, num_classes, selected_classes, save_dir='plots'
 ############################################################################################################
 
 def test_single_image(model, img_path, num_classes=10):
+    start_time = time.time()  # Start time tracking
+
     img = Image.open(img_path).convert("L")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    trans = transforms.Compose([transforms.Resize((28, 28)), transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+    trans = transforms.Compose(
+        [transforms.Resize((28, 28)), transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
     img_tensor = trans(img).unsqueeze(0).to(device)  # Ensure normalization and move to device
 
     model = model.to(device)
@@ -371,7 +375,7 @@ def test_single_image(model, img_path, num_classes=10):
     labels = np.arange(num_classes)
     fig, axs = plt.subplots(1, 2, gridspec_kw={"width_ratios": [1, 3]})
 
-    plt.title("Classified as: {}, Uncertainty: {}".format(preds[0], uncertainty.item()))
+    plt.title("Classified as: {}, Uncertainty: {}".format(preds[0].item(), uncertainty.item()))
 
     axs[0].set_title("Image")
     axs[0].imshow(img, cmap="gray")
@@ -390,12 +394,24 @@ def test_single_image(model, img_path, num_classes=10):
 
     plt.show()
 
+    end_time = time.time()  # End time tracking
+    runtime = end_time - start_time  # Calculate runtime
+
+    print(f'Runtime: {runtime:.4f} seconds')  # Print runtime
+
 
 def rotate_img(x, deg):
     return nd_rotate(x.reshape(28, 28), deg, reshape=False).ravel()
 
+
+
+
+
 def classify_uploaded_image(model, image_path, input_size=28, selected_classes=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Record the start time
+    start_time = time.time()
 
     # Load and preprocess the image
     image = Image.open(image_path).convert('L' if input_size == 28 else 'RGB')
@@ -427,11 +443,18 @@ def classify_uploaded_image(model, image_path, input_size=28, selected_classes=[
     # Convert to numpy for readability
     predicted_class = predicted_class.cpu().item()
 
+    # Record the end time
+    end_time = time.time()
+
+    # Calculate the runtime
+    runtime = end_time - start_time
+
     print(f'Alpha: {alpha}')
     print(f'Dirichlet Strength: {dirichlet_strength}')
     print(f'Uncertainty: {uncertainty}')
     print(f'Predicted Class: {selected_classes[predicted_class]}')
     print(f'Predicted Probability: {prob[0][predicted_class].cpu().item()}')
+    print(f'Runtime: {runtime:.4f} seconds')
 
     return selected_classes[predicted_class]
 

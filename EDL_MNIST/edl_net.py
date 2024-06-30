@@ -22,9 +22,9 @@ class EDLNet(nn.Module):
         # Define hyperparameters
         self.num_classes = num_classes
         self.input_channels = input_channels
-        self.conv1_out_channels = 16    # MNIST 8, FashionMNIST 16
-        self.conv2_out_channels = 32    # MNIST 16, FashionMNIST 32
-        self.fc1_out_features = 128   # MNIST 64, FashionMNIST 128
+        self.conv1_out_channels = 8    # MNIST 8, FashionMNIST 16
+        self.conv2_out_channels = 16    # MNIST 16, FashionMNIST 32
+        self.fc1_out_features = 64   # MNIST 64, FashionMNIST 128
 
         # Define layers
         self.conv1 = nn.Conv2d(self.input_channels, self.conv1_out_channels, kernel_size=3, padding=1)
@@ -147,6 +147,7 @@ def model_training(
         selected_classes,
         optimizer,
         num_epochs=25,
+        annealing_step=10,
         save_path='./cnn.pth',
         visualize_dir=False,
 ):
@@ -199,7 +200,7 @@ def model_training(
 
             labels = torch.eye(num_classes)[labels].float()
             loss, loglikelihood_err, loglikelihood_var, kl_div = edl_mse_loss(
-                target=labels.float(), epoch_num=epoch, annealing_step=10,
+                target=labels.float(), epoch_num=epoch, annealing_step=annealing_step,
                 num_classes=num_classes, alpha=alpha
             )
 

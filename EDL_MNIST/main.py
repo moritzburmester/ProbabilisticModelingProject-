@@ -7,16 +7,18 @@ from auxiliary_functions import (plot_dirichlet_parameters, get_data_loaders, cl
 
 def main():
     # Configuration parameters
-    selected_classes = [0,1,2,3,4,5,6,7,8,9]  # Select classes
-    num_epochs = 100  # Number of epochs
+    selected_classes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]  # Select all classes
+    num_epochs = 50  # Number of epochs
     num_classes = len(selected_classes)  # Dynamically set the number of classes based on selected_classes
-    dataset_name = 'FashionMNIST'  # Focus on MNIST
-    save_path = './edl_fashion_mnist.pth'
-    image_path = './one.jpg'  # Path to the uploaded image
-    img_path = './one.jpg'  # Path to the uploaded image 2nd function
+    dataset_name = 'MNIST'  # Focus on MNIST
+    annealing_steps = 10 #  annealing steps (the smaller the more effect KL divergence has)
+    save_path = './model/edl_mnist_step_10.pth'
+    image_path = './data/one.jpg'  # Path to the uploaded image
+    img_path = './data/one.jpg'  # Path to the uploaded image 2nd function
+    img_path_2 = './data/image.png'  # Path to the uploaded image 2nd function
 
     # Loading the data
-    test_dataset, train_loader, test_loader = get_data_loaders(dataset_name, batch_size=1000, num_workers=2, root='./data',
+    test_dataset, train_loader, test_loader = get_data_loaders(dataset_name, batch_size=1000, num_workers=0, root='./data',
                                                  selected_classes=selected_classes)
 
     # Plot the first image of each class
@@ -32,17 +34,18 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
 
-    # model = model_training(
-    #     model,
-    #     train_loader,
-    #     test_loader,
-    #     num_classes=num_classes,
-    #     selected_classes=selected_classes,
-    #     optimizer=optimizer,
-    #     num_epochs=num_epochs,
-    #     save_path=save_path,
-    #     visualize_dir=False,
-    # )
+    '''model = model_training(
+         model,
+         train_loader,
+         test_loader,
+         num_classes=num_classes,
+         selected_classes=selected_classes,
+         optimizer=optimizer,
+         num_epochs=num_epochs,
+         annealing_step=annealing_steps,
+         save_path=save_path,
+         visualize_dir=False,
+     )'''
 
 
     # Evaluate the model using different eval functions
@@ -59,16 +62,17 @@ def main():
     print(f'Predicted class for the uploaded image: {predicted_class}')
 
     test_single_image(model, img_path, num_classes=num_classes)
+    test_single_image(model, img_path=img_path_2, num_classes=num_classes)
 
     # Filter test dataset for class "1" and visualize the rotation, with a stopper after 3 images
     digit_one_images = [(idx, data) for idx, data in enumerate(test_dataset) if data[1] == 1]
     for idx, (image_idx, (digit_one, _)) in enumerate(digit_one_images):
         print(f'Using image at index {image_idx} from test_dataset for visualization.')
         noisy_image_classification(
-            model, img=digit_one, threshold=0.3, num_classes=num_classes,
+            model, img=digit_one, threshold=0.5, num_classes=num_classes,
             selected_classes=selected_classes, plot_dir='noise_classification', file_name=f'noisy_image_{idx}')
         rotating_image_classification(
-            model, img=digit_one, threshold=0.3, num_classes=num_classes,
+            model, img=digit_one, threshold=0.5, num_classes=num_classes,
             selected_classes=selected_classes, plot_dir='rotation_classification', file_name=f'rotating_image_{idx}')
         if idx >= 2:  # Stop after processing 3 images
             break
