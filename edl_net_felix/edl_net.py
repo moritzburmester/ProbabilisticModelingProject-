@@ -10,7 +10,7 @@ from sklearn.metrics import precision_recall_fscore_support, confusion_matrix, c
 import seaborn as sns
 import pandas as pd
 
-from auxiliary_functions import (dempster_shafer, plot_training_metrics,
+from auxiliary_functions import (rotating_image_classification, dempster_shafer, plot_training_metrics,
                                  plot_dirichlet_parameters, evaluate_during_training)
 
 class EDLNet(nn.Module):
@@ -22,9 +22,9 @@ class EDLNet(nn.Module):
         # Define hyperparameters
         self.num_classes = num_classes
         self.input_channels = input_channels
-        self.conv1_out_channels = 8
-        self.conv2_out_channels = 16
-        self.fc1_out_features = 64
+        self.conv1_out_channels = 16    # MNIST 8, FashionMNIST 16
+        self.conv2_out_channels = 32    # MNIST 16, FashionMNIST 32
+        self.fc1_out_features = 128   # MNIST 64, FashionMNIST 128
 
         # Define layers
         self.conv1 = nn.Conv2d(self.input_channels, self.conv1_out_channels, kernel_size=3, padding=1)
@@ -199,9 +199,12 @@ def model_training(
 
             labels = torch.eye(num_classes)[labels].float()
             loss, loglikelihood_err, loglikelihood_var, kl_div = edl_mse_loss(
-                target=labels.float(), epoch_num=epoch, annealing_step=100,
+                target=labels.float(), epoch_num=epoch, annealing_step=10,
                 num_classes=num_classes, alpha=alpha
             )
+
+            if visualize_dir and i % 100 == 0:
+                plot_dirichlet_parameters([list(alpha[0].detach().cpu())])
 
             epoch_loss += loss.item()
             epoch_loglikelihood_error += loglikelihood_err.item()
@@ -260,13 +263,9 @@ def model_training(
     print(f'Best Test Accuracy: {best_accuracy:.2f}%')
 
     # Save the best model
-    #torch.save(best_model, save_path)
-    #print("-" * 120)
-    #print(f'Model saved to {save_path}')
-
-    # Perform rotating image classification to demonstrate uncertainty
-    #rotating_image_classification(
-        #test_loader, model, dataclass=1, num_classes=num_classes, threshold=0.5, selected_classes=selected_classes)
+    torch.save(best_model, save_path)
+    print("-" * 120)
+    print(f'Model saved to {save_path}')
 
     # Plotting metrics
     plot_training_metrics(train_evidences, train_uncertainties, train_losses, loglikelihood_errors,
