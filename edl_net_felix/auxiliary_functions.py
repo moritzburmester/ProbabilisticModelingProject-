@@ -15,6 +15,8 @@ import os
 import matplotlib.tri as tri
 import matplotlib.gridspec as gridspec
 from scipy.ndimage import rotate as nd_rotate
+from scipy.ndimage import gaussian_filter
+
 
 ############################################################################################################
 #                           Data Loader and data manipulation functions                                    #
@@ -347,131 +349,6 @@ def evaluate(model, data_loader, num_classes, selected_classes, save_dir='plots'
 #                Visualization of testing an adversarial example displaying the uncertainty                #
 ############################################################################################################
 
-'''def unnormalize(img, mean, std):
-    img = img * std + mean
-    return img'''
-'''
-def rotate_img(img, angle, img_size, channels):
-    if channels == 1:
-        return rotate(img.reshape(img_size), angle, reshape=False).ravel()
-    else:
-        rotated = np.zeros_like(img)
-        for c in range(channels):
-            rotated[c] = rotate(img[c].reshape(img_size), angle, reshape=False)
-        return rotated.ravel()
-
-def get_specific_digit(data_loader, digit):
-    """Retrieve the first occurrence of the specified digit from the dataset."""
-    for imgs, labels in data_loader:
-        for img, label in zip(imgs, labels):
-            if label.item() == digit:
-                return img, label
-    return next(iter(data_loader))  # Return the first data point if the specified digit is not found
-
-def rotating_image_classification(dataset, model, dataclass=None, num_classes=10, threshold=0.5, plot_dir='plots', selected_classes=None):
-    if not os.path.exists(plot_dir):
-        os.makedirs(plot_dir)
-
-    if dataclass is not None:
-        img, label = get_specific_digit(dataset, dataclass)
-    else:
-        img, label = next(iter(dataset))
-
-    # Ensure img and label are single elements
-    img = img.unsqueeze(0) if img.dim() == 3 else img
-    label = torch.tensor([label.item()]) if label.dim() == 0 else label
-
-    # Select a single image and label
-    img = img[0]  # Take the first image from the batch
-    label = label[0]  # Take the first label from the batch
-
-    print(f"Using class {selected_classes[label.item()]} for classification.")  # Use the actual class name
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model.to(device)
-    model.eval()
-
-    img_size = img.shape[1:]
-    channels = img.shape[0]
-    Mdeg = 180
-    Ndeg = int(Mdeg / 10) + 1
-    ldeg = []
-    lp = []
-    lu = []
-    scores = np.zeros((1, num_classes))
-    rimgs = np.zeros((img_size[0], img_size[1] * Ndeg, channels))
-
-    mean = np.array([0.5] * channels)
-    std = np.array([0.5] * channels)
-
-    # Unnormalize the image before rotation
-    img = unnormalize(img, mean, std)
-    img = np.clip(img, 0, 1)
-
-    for i, deg in enumerate(np.linspace(0, Mdeg, Ndeg)):
-        nimg = rotate_img(img.numpy(), deg, img_size, channels).reshape((channels, img_size[0], img_size[1]))
-        nimg = np.clip(a=nimg, a_min=0, a_max=1)
-        rimgs[:, i * img_size[1]:(i + 1) * img_size[1], :] = nimg.transpose(1, 2, 0)
-        nimg = torch.tensor(nimg, dtype=torch.float32).unsqueeze(0).to(device)
-
-        with torch.no_grad():
-            outputs = model(nimg)
-
-        alpha, diri_strength, uncertainty = dempster_shafer(outputs)
-        prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
-        p_pred_t = prob.cpu().numpy()
-        lu.append(uncertainty.mean().cpu().numpy())
-
-        scores += p_pred_t >= threshold
-        ldeg.append(deg)
-        lp.append(p_pred_t[0])
-
-    labels = np.arange(num_classes)[scores[0].astype(bool)]
-    lp = np.array(lp)[:, labels]
-    c = ['black', 'blue', 'brown', 'red', 'purple', 'cyan']
-    marker = ['s', '^', 'o'] * 2
-    labels = [selected_classes[label] for label in labels.tolist()]  # Map back to actual class names
-
-    # Create a single figure with two subplots using GridSpec
-    fig = plt.figure(figsize=(10, 8))
-    gs = gridspec.GridSpec(2, 1, height_ratios=[2, 1], hspace=0.05)
-
-    # Add a title to the figure
-    fig.suptitle(f"Classification and uncertainty for rotated image of class {selected_classes[label.item()]}", fontsize=14)
-
-    ax0 = plt.subplot(gs[0])
-    ax1 = plt.subplot(gs[1])
-
-    # Plot the classification probabilities
-    for i in range(len(labels)):
-        ax0.plot(ldeg, lp[:, i], marker=marker[i], c=c[i])
-
-    if len(lu) > 0:
-        labels += ['uncertainty']
-        ax0.plot(ldeg, lu, marker='<', c='red')
-
-    ax0.legend(labels)
-    ax0.set_xlim([0, Mdeg])
-    ax0.set_xlabel('Rotation Degree')
-    ax0.set_ylabel('Classification Probability')
-
-    # Unnormalize the rotated images before displaying
-    rimgs = unnormalize(rimgs, mean, std)
-    rimgs = np.clip(rimgs, 0, 1)
-
-    # Plot the rotated images underneath
-    ax1.imshow(1 - rimgs, cmap='gray', aspect='equal')
-    ax1.axis('off')
-
-    # Save the combined plot
-    plt.savefig(f'{plot_dir}/testing_rotation.png')
-    plt.show()
-'''
-
-def rotate_img(x, deg):
-    return nd.rotate(x.reshape(28, 28), deg, reshape=False).ravel()
-
-
 def test_single_image(model, img_path, num_classes=10):
     img = Image.open(img_path).convert("L")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -517,6 +394,56 @@ def test_single_image(model, img_path, num_classes=10):
 def rotate_img(x, deg):
     return nd_rotate(x.reshape(28, 28), deg, reshape=False).ravel()
 
+def classify_uploaded_image(model, image_path, input_size=28, selected_classes=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Load and preprocess the image
+    image = Image.open(image_path).convert('L' if input_size == 28 else 'RGB')
+    transform = transforms.Compose([
+        transforms.Resize((input_size, input_size)),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5,), (0.5,)) if input_size == 28 else transforms.Normalize(
+            (0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
+    img_tensor = transform(image).unsqueeze(0).to(device)
+
+    # Plot the image
+    plt.imshow(image, cmap='gray' if input_size == 28 else None)
+    plt.title('Uploaded Image')
+    plt.show()
+
+    # Make prediction
+    model = model.to(device)
+    model.eval()
+    with torch.no_grad():
+        outputs = model(img_tensor)
+
+    # Apply Dempster-Shafer theory to get alpha, dirichlet_strength, and uncertainty
+    alpha, dirichlet_strength, uncertainty = dempster_shafer(outputs)
+    prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
+
+    _, predicted_class = torch.max(outputs, 1)
+
+    # Convert to numpy for readability
+    predicted_class = predicted_class.cpu().item()
+
+    print(f'Alpha: {alpha}')
+    print(f'Dirichlet Strength: {dirichlet_strength}')
+    print(f'Uncertainty: {uncertainty}')
+    print(f'Predicted Class: {selected_classes[predicted_class]}')
+    print(f'Predicted Probability: {prob[0][predicted_class].cpu().item()}')
+
+    return selected_classes[predicted_class]
+
+
+def unnormalize(img, mean, std):
+    """Unnormalize the image for visualization."""
+    img = img * std + mean
+    return img
+
+def rotate_img(x, deg):
+    """Rotate image by a specified degree."""
+    return nd_rotate(x.reshape(28, 28), deg, reshape=False).ravel()
 
 def rotating_image_classification(model, img, threshold=0.5, num_classes=10, selected_classes=None,
                                   plot_dir='rotation_classification', file_name='rotating_image'):
@@ -544,16 +471,15 @@ def rotating_image_classification(model, img, threshold=0.5, num_classes=10, sel
         with torch.no_grad():
             output = model(img_tensor)
         alpha, diri_strength, uncertainty = dempster_shafer(output)
+        prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
         uncertainty = num_classes / torch.sum(alpha, dim=1, keepdim=True)
         _, preds = torch.max(output, 1)
-        prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
         classifications.append(selected_classes[preds[0].item()])
         lu.append(uncertainty.mean().detach().cpu().numpy())
 
         scores += prob.detach().cpu().numpy() >= threshold
         ldeg.append(deg)
         lp.append(prob.cpu().numpy())
-
 
     labels = np.arange(num_classes)[scores[0].astype(bool)]
 
@@ -605,44 +531,100 @@ def rotating_image_classification(model, img, threshold=0.5, num_classes=10, sel
     plt.savefig(os.path.join(plot_dir, f'{file_name}.png'))
     plt.show()
 
-def classify_uploaded_image(model, image_path, input_size=28, selected_classes=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]):
+
+############################################################################################################
+#                                         Gaussian                                           #
+############################################################################################################
+
+def add_gaussian_noise(image, std_dev):
+    noise = np.random.normal(0, std_dev, image.shape)
+    noisy_image = image + noise
+    return np.clip(noisy_image, 0, 1)
+
+def noisy_image_classification(model, img, threshold=0.5, num_classes=10, selected_classes=None,
+                               plot_dir='noise_classification', file_name='noisy_image'):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    max_std_dev = 1.0
+    num_steps = 20
+    l_std_dev = []
+    lp = []
+    lu = []
+    classifications = []
 
-    # Load and preprocess the image
-    image = Image.open(image_path).convert('L' if input_size == 28 else 'RGB')
-    transform = transforms.Compose([
-        transforms.Resize((input_size, input_size)),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,)) if input_size == 28 else transforms.Normalize(
-            (0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
-    img_tensor = transform(image).unsqueeze(0).to(device)
+    scores = np.zeros((1, num_classes))
+    nimgs = np.zeros((28, 28 * num_steps))
 
-    # Plot the image
-    plt.imshow(image, cmap='gray' if input_size == 28 else None)
-    plt.title('Uploaded Image')
+    trans = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+
+    for i, std_dev in enumerate(np.linspace(0, max_std_dev, num_steps)):
+        nimg = add_gaussian_noise(np.array(img), std_dev).reshape(28, 28)
+        nimg = np.clip(a=nimg, a_min=0, a_max=1)
+        nimgs[:, i * 28: (i + 1) * 28] = nimg
+        img_tensor = trans(nimg).unsqueeze(0).to(device)  # Ensure normalization and move to device
+
+        img_tensor = img_tensor.float()  # Convert to float32
+
+        model = model.to(device)
+        model.eval()
+        with torch.no_grad():
+            output = model(img_tensor)
+        alpha, diri_strength, uncertainty = dempster_shafer(output)
+        prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
+        uncertainty = num_classes / torch.sum(alpha, dim=1, keepdim=True)
+        _, preds = torch.max(output, 1)
+        classifications.append(selected_classes[preds[0].item()])
+        lu.append(uncertainty.mean().detach().cpu().numpy())
+
+        scores += prob.detach().cpu().numpy() >= threshold
+        l_std_dev.append(std_dev)
+        lp.append(prob.cpu().numpy())
+
+    labels = np.arange(num_classes)[scores[0].astype(bool)]
+
+    # Convert lp to numpy array and squeeze the unnecessary dimension
+    lp_array = np.squeeze(np.array(lp), axis=1)
+
+    lp = lp_array[:, labels]
+
+    c = ['black', 'blue', 'brown', 'purple', 'cyan', 'red', 'green']
+    marker = ['s', '^', 'o'] * 2
+    labels = [selected_classes[label] for label in labels.tolist()]
+
+    fig = plt.figure(figsize=(10, 8))
+    gs = plt.GridSpec(3, 1, height_ratios=[2, 1, 0.2], hspace=0.05)
+    fig.suptitle(f"Classification and uncertainty for noisy image of class {selected_classes[classifications[0]]}", fontsize=14)
+
+    ax0 = plt.subplot(gs[0])
+    ax1 = plt.subplot(gs[1])
+    ax2 = plt.subplot(gs[2])
+
+    for i in range(len(labels)):
+        ax0.plot(l_std_dev, lp[:, i], marker=marker[i], c=c[i])
+
+    if len(lu) > 0:
+        labels += ['uncertainty']
+        ax0.plot(l_std_dev, lu, marker='<', c='red')
+
+    ax0.legend(labels)
+    ax0.set_xlim([0, max_std_dev])
+    ax0.set_xlabel('Gaussian Noise Std Dev')
+    ax0.set_ylabel('Classification Probability')
+
+    ax1.imshow(1 - nimgs, cmap='gray', aspect='equal')
+    ax1.axis('off')
+
+    ax2.axis('off')
+    table_data = [classifications]
+    table = ax2.table(cellText=table_data, cellLoc='center', loc='center', edges='open')
+    table.auto_set_font_size(False)
+    table.set_fontsize(12)
+    table.scale(1, 1.5)
+    ax2.set_title('Classifications')
+
+    for key, cell in table.get_celld().items():
+        cell.set_linewidth(1)
+
+    if not os.path.exists(plot_dir):
+        os.makedirs(plot_dir)
+    plt.savefig(os.path.join(plot_dir, f'{file_name}.png'))
     plt.show()
-
-    # Make prediction
-    model = model.to(device)
-    model.eval()
-    with torch.no_grad():
-        outputs = model(img_tensor)
-
-    # Apply Dempster-Shafer theory to get alpha, dirichlet_strength, and uncertainty
-    alpha, dirichlet_strength, uncertainty = dempster_shafer(outputs)
-    prob = alpha / torch.sum(alpha, dim=1, keepdim=True)
-
-    _, predicted_class = torch.max(outputs, 1)
-
-    # Convert to numpy for readability
-    predicted_class = predicted_class.cpu().item()
-
-    print(f'Alpha: {alpha}')
-    print(f'Dirichlet Strength: {dirichlet_strength}')
-    print(f'Uncertainty: {uncertainty}')
-    print(f'Predicted Class: {selected_classes[predicted_class]}')
-    print(f'Predicted Probability: {prob[0][predicted_class].cpu().item()}')
-
-    return selected_classes[predicted_class]
-
