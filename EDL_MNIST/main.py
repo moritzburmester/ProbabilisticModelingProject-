@@ -7,15 +7,14 @@ from auxiliary_functions import (plot_dirichlet_parameters, get_data_loaders, cl
 
 def main():
     # Configuration parameters
-    selected_classes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]  # Select all classes
-    num_epochs = 25  # Number of epochs
+    selected_classes = [0, 1, 2,3, 4,5,6,7,8,9]  # Select classes
+    num_epochs = 100  # Number of epochs
     num_classes = len(selected_classes)  # Dynamically set the number of classes based on selected_classes
-    dataset_name = 'FashionMNIST'  # Dataset name
-    annealing_steps = 10 #  annealing steps (the smaller the more effect KL divergence has)
-    save_path = './model/edl_fashionmnist_step_10_25e.pth'
+    dataset_name = 'MNIST'  # Focus on MNIST
+    save_path = './model/edl_mnist.pth'
     image_path = './data/one.jpg'  # Path to the uploaded image
-    img_path = './data/smile.png'  # Path to the uploaded image 2nd function
-    img_path_2 = './data/questionmark.png'  # Path to the uploaded image 2nd function
+    img_path = './data/one.jpg'  # Path to the uploaded image 2nd function
+    img_path_2 = './data/image.png'   # Path to the uploaded image 2nd function
 
     # Loading the data
     test_dataset, train_loader, test_loader = get_data_loaders(dataset_name, batch_size=1000, num_workers=0, root='./data',
@@ -34,21 +33,20 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
 
-    model = model_training(
-             model,
-             train_loader,
-             test_loader,
-             num_classes=num_classes,
-             selected_classes=selected_classes,
-             optimizer=optimizer,
-             num_epochs=num_epochs,
-             annealing_step=annealing_steps,
-             save_path=save_path,
-             visualize_dir=False
-    )
+    # model = model_training(
+    #     model,
+    #     train_loader,
+    #     test_loader,
+    #     num_classes=num_classes,
+    #     selected_classes=selected_classes,
+    #     optimizer=optimizer,
+    #     num_epochs=num_epochs,
+    #     save_path=save_path,
+    #     visualize_dir=False,
+    # )
+
 
     # Evaluate the model using different eval functions
-
     print("Final Evaluation:")
 
     # loaf the model
